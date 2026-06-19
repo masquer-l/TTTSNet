@@ -113,6 +113,11 @@ class TTTSNetTemporalDataset(Dataset):
         images = [self._load_image(p) for p in image_paths]
         labels = [self._load_label(p) for p in label_paths]
 
+        # 训练模式下对 3 帧和中间帧 mask 做一致的水平翻转
+        if self.mode == "train" and np.random.random() < 0.5:
+            images = [np.fliplr(img).copy() for img in images]
+            labels = [np.fliplr(lbl).copy() for lbl in labels]
+
         if self.mode == "train":
             transformed_images = [self.train_transform(image=img)["image"] for img in images]
             transformed_label = self.train_transform(image=images[1], mask=labels[1])
