@@ -15,8 +15,9 @@
 | 3 | TTS-Net-Temporal v2 (λ=1.0) | Phase 3 | `experiments/tttsnet_temporal_v2_20260620_021245/tttsnet_temporal_v2_20260620_021249/` | ✅ 完成待分析 | 0.5459 | - | 100 epochs 完成，仍未超 baseline |
 | 4 | Baseline vs Temporal v1 对比 | Phase 3 | `experiments/comparison_baseline_vs_temporal_v1/` | ✅ 完成 | - | - | 对比表格和曲线 |
 | 5 | TTS-Net-Semi（伪标签+有标注） | Phase 4 | `experiments/tttsnet_semi_20260620_085333/tttsnet_semi_20260620_085338/` | ⏸️ 已暂停 | 0.4630 (epoch 10) | 10 | 按诊断建议暂停，优先做实 baseline |
-| 6 | TTS-Net-Temporal v3（强同步增强，λ=0.1） | Phase 3 | `configs/config_temporal_v3.json` | ⏳ 待执行 | - | - | 待 AUFL quick check 完成后决定 |
-| 7 | B3 AUFL loss 30ep quick check | Phase 2 | `experiments/tttsnet_aufl_30ep_20260620_103645/tttsnet_aufl_30ep_20260620_103650/` | 🔄 进行中 | - | - | 验证 AUFL 是否优于当前 Dice+BCE+CE |
+| 6 | TTS-Net-Temporal v3（强同步增强，λ=0.1） | Phase 3 | `configs/config_temporal_v3.json` | ⏳ 待执行 | - | - | 待 T1 no-loss 诊断完成后决定 |
+| 7 | B3 AUFL loss 30ep quick check | Phase 2 | `experiments/tttsnet_aufl_30ep_20260620_103645/tttsnet_aufl_30ep_20260620_103650/` | ✅ 完成 | 0.5647 (epoch 27) | 27 | 30ep AUFL 低于 baseline 30ep (0.5720) |
+| 8 | T1 Temporal no-loss 诊断 | Phase 3 | `experiments/tttsnet_temporal_no_loss_20260620_114901/tttsnet_temporal_no_loss_20260620_114905/` | 🔄 进行中 | - | - | 判断 dataset/增强是否是主因 |
 
 ---
 
@@ -60,6 +61,25 @@
 | 启发式 bad | 0% |
 
 **结论**: 伪标签质量较好，不像之前担心的"噪声主导"。但保留率 94% 仍偏宽，后续可尝试更严格的筛选策略。
+
+### B3 AUFL loss 30ep Quick Check
+
+| 实验 | 30ep best val_mIoU | 对应 epoch | 备注 |
+|---|---|---|---|
+| AUFL (weight=0.5, delta=0.6, gamma=0.2) | **0.5647** | 27 | AsymmetricUnifiedFocalLoss |
+| Baseline (Dice+BCE+0.5CE) @ 30ep | **0.5720** | 24 | 当前训练脚本 |
+| Baseline (Dice+BCE+0.5CE) best | **0.5992** | 66 | 100 epochs 完整训练 |
+
+**结论**: 默认参数下 AUFL 30ep 未达到 baseline 30ep 水平。当前 loss 组合不是主要瓶颈，不建议继续投入 AUFL 调参。
+
+### T1 Temporal No-Loss 诊断
+
+- **目的**: 使用 TemporalDataset 但关闭 temporal loss（λ=0），判断 dataset/增强差异是否是 Temporal 低于 Single 的主因。
+- **状态**: 🔄 已启动
+- **实验目录**: `experiments/tttsnet_temporal_no_loss_20260620_114901/`
+- **判断标准**:
+  - 若 no-loss 结果 ≈ baseline 0.599：说明 temporal loss 本身无效，dataset 无问题
+  - 若 no-loss 结果 ≈ temporal v1/v2 (0.55)：说明 dataset/增强是主因，应考虑 temporal v3 强增强
 
 ---
 
@@ -106,9 +126,9 @@
 1. **Baseline 0.599 是当前最佳结果**，未达 0.65 目标。
 2. **标签处理无误**：value=2,3 不是目标血管，当前 `label > 1 -> 0` 正确。
 3. **阈值 0.5 接近最优**：最佳阈值 0.4 仅比 0.5 高 0.003 mIoU。
-4. **Temporal 一致性约束未能提升性能**（v1: 0.549, v2: 0.546），待 AUFL 实验后启动诊断实验 T1。
+4. **AUFL loss 不是瓶颈**：默认参数 30ep AUFL best 0.5647，低于 baseline 30ep 0.5720。
 5. **伪标签质量较好**：100 张样本中 90% good, 10% medium, 0% bad。
-6. **AUFL loss 30ep quick check 已启动**，用于判断 loss 设计是否是 baseline 瓶颈。
+6. **Temporal 一致性约束未能提升性能**（v1: 0.549, v2: 0.546），T1 no-loss 诊断已启动以定位原因。
 
 ---
 

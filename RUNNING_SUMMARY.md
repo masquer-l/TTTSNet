@@ -60,14 +60,23 @@
 - **阻塞点**: 已解除
 - **下一步**: 待 baseline 做实、伪标签筛选策略优化后，再重启 semi 实验
 
-### B3: AUFL loss 30ep Quick Check（进行中）
+### B3: AUFL loss 30ep Quick Check（已完成）
+
+- **状态**: ✅ 完成
+- **实验目录**: `TTTSNet/experiments/tttsnet_aufl_30ep_20260620_103645/tttsnet_aufl_30ep_20260620_103650/`
+- **结果**: 30ep best val_mIoU = **0.5647** (epoch 27)
+- **对比**: baseline 30ep val_mIoU = **0.5720**；baseline 100ep best = **0.5992**
+- **结论**: 默认参数 AUFL 不是当前瓶颈
+
+### T1: Temporal No-Loss 诊断（进行中）
 
 - **状态**: 🔄 训练中
-- **实验目录**: `TTTSNet/experiments/tttsnet_aufl_30ep_20260620_103645/tttsnet_aufl_30ep_20260620_103650/`
-- **目的**: 验证 AsymmetricUnifiedFocalLoss 是否优于当前 Dice+BCE+CE
-- **配置**: `configs/config_aufl_30ep.json`
-- **下一步**: 30 epochs 后比较 val_mIoU 曲线
-
+- **实验目录**: `TTTSNet/experiments/tttsnet_temporal_no_loss_20260620_114901/tttsnet_temporal_no_loss_20260620_114905/`
+- **目的**: 关闭 temporal loss，判断 TemporalDataset/增强是否是 Temporal 低于 Single 的主因
+- **配置**: `configs/config_temporal_no_loss.json`
+- **判断标准**:
+  - 若结果 ≈ baseline 0.599：说明 temporal loss 本身无效
+  - 若结果 ≈ temporal v1/v2 (0.55)：说明 dataset/增强是主因，应执行 temporal v3
 ### 已归档的失败尝试
 
 - **首次 semi 启动**: `experiments/deprecated/tttsnet_semi_20260620_084856/`
@@ -91,7 +100,7 @@
 6. **伪标签质量较好**:
    - 100 张随机样本：90% good, 10% medium, 0% bad
    - 面积分布合理（mean 11.4%），无空 mask 或全图 mask
-7. **AUFL loss quick check** 已启动，30 epochs 后评估是否优于当前 loss
+7. **AUFL loss 不是瓶颈**: 默认参数 30ep AUFL best 0.5647，低于 baseline 30ep 0.5720
 8. **Semi 训练已暂停**，等待 baseline 做实和伪标签策略优化
 ### 立即
 1. 等待 AUFL 30ep quick check 完成，判断 loss 是否为主要瓶颈
@@ -132,5 +141,6 @@
 | Temporal v2 (λ=1.0) | `experiments/tttsnet_temporal_v2_20260620_021245/tttsnet_temporal_v2_20260620_021249/` | ✅ 完成待分析 |
 | Baseline vs Temporal v1 对比 | `experiments/comparison_baseline_vs_temporal_v1/` | ✅ 完成 |
 | Pseudo-label 日志 | `experiments/pseudo_label_generation.log` | ✅ 成功完成 |
-| AUFL 30ep quick check | `experiments/tttsnet_aufl_30ep_20260620_103645/tttsnet_aufl_30ep_20260620_103650/` | 🔄 进行中 |
+| AUFL 30ep quick check | `experiments/tttsnet_aufl_30ep_20260620_103645/tttsnet_aufl_30ep_20260620_103650/` | ✅ 完成 |
+| Temporal no-loss | `experiments/tttsnet_temporal_no_loss_20260620_114901/tttsnet_temporal_no_loss_20260620_114905/` | 🔄 进行中 |
 | Semi-supervised | `experiments/tttsnet_semi_20260620_085333/tttsnet_semi_20260620_085338/` | ⏸️ 已暂停 |
