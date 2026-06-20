@@ -86,7 +86,8 @@ python tools/train.py --config configs/config.json --work_dir experiments/debug
 - Baseline: val_mIoU = 0.599 (epoch 66)
 - Temporal v1: val_mIoU = 0.549 (epoch 18, stopped at epoch 35)
 - Temporal v2: val_mIoU = 0.546 (100 epochs)
-- 时序一致性约束目前未能超过 baseline，需要进一步分析根因。
+- Semi-supervised: 🔄 训练中，当前 epoch 9 val_mIoU = 0.459
+- 时序一致性约束目前未能超过 baseline，半监督实验正在验证中。
 
 ---
 

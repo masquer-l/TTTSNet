@@ -1,7 +1,7 @@
 # TTTSNet-Research v2.0 实验进展摘要
 
 **更新时间:** 2026-06-20  
-**当前阶段:** Phase 3 已完成训练，进入结果分析；Phase 4 准备中  
+**当前阶段:** Phase 4 半监督训练已启动并运行中  
 
 ---
 
@@ -49,14 +49,21 @@
 
 ## 进行中实验
 
-### Phase 4: TTS-Net-Semi 准备
+### Phase 4: TTS-Net-Semi（进行中）
 
-- **状态**: ⏸️ 伪标签生成中断/未完成
-- **代码**: `tools/train_semi.py`, `src/dataset_semi.py`, `tools/generate_pseudo_labels.py` 已就绪
-- **输出目录**: `TTTSNet/pseudo_labels/`（当前为空）
-- **日志**: `TTTSNet/experiments/deprecated/pseudo_label_generation.log`
-- **阻塞点**: 需要确认伪标签生成是否真的完成，以及置信度阈值 0.9 是否过高导致保存率为 0
-- **下一步**: 重新运行伪标签生成，或降低 confidence_threshold 验证
+- **状态**: 🔄 训练中（已跑 9 epochs）
+- **实验目录**: `TTTSNet/experiments/tttsnet_semi_20260620_085333/tttsnet_semi_20260620_085338/`
+- **当前结果**: val_mIoU = **0.4594** (epoch 9)，持续提升中
+- **代码修复**: `src/dataset_semi.py` 已修复 image/mask 尺寸对齐问题
+- **数据**: 2060 有标注 + 18935 伪标签（confidence≥0.9），共 20995 训练样本
+- **阻塞点**: 已解除
+- **下一步**: 等待 100 epochs 训练完成，观察是否能超过 baseline 0.599
+
+### 已归档的失败尝试
+
+- **首次 semi 启动**: `experiments/deprecated/tttsnet_semi_20260620_084856/`
+  - 失败原因: `dataset_semi.py` 中伪标签尺寸（448×448）与原图尺寸不一致，Albumentations shape check 报错
+  - 修复: 在 `__getitem__` 中把 label resize 到 image 尺寸后再 transform
 
 ---
 
@@ -69,7 +76,10 @@
    - v1 (λ=0.1): 0.549 < 0.599
    - v2 (λ=1.0): 0.546 < 0.599
    - 需要先排查实现 bug，再决定是否继续调参
-5. **数据分布**：FetReg2021 train 前景比例均值 8.85%，血管分割是典型类别不平衡问题。
+5. **Phase 4 半监督**:
+   - 伪标签生成成功：20133 帧中 18935 帧（94.0%）通过 confidence≥0.9 阈值
+   - 首次 semi 训练因 image/mask 尺寸不一致失败，已修复并重新启动
+   - 当前 epoch 9 val_mIoU = 0.459，仍在训练中
 
 ---
 
@@ -109,4 +119,5 @@
 | Temporal v1 (λ=0.1) | `experiments/tttsnet_temporal_20260620_013149/tttsnet_temporal_20260620_013154/` | ⏹️ 停止 |
 | Temporal v2 (λ=1.0) | `experiments/tttsnet_temporal_v2_20260620_021245/tttsnet_temporal_v2_20260620_021249/` | ✅ 完成待分析 |
 | Baseline vs Temporal v1 对比 | `experiments/comparison_baseline_vs_temporal_v1/` | ✅ 完成 |
-| Pseudo-label 日志 | `experiments/deprecated/pseudo_label_generation.log` | ⏸️ 中断（已归档） |
+| Pseudo-label 日志 | `experiments/pseudo_label_generation.log` | ✅ 成功完成 |
+| Semi-supervised | `experiments/tttsnet_semi_20260620_085333/tttsnet_semi_20260620_085338/` | 🔄 进行中 |
