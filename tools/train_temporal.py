@@ -53,10 +53,12 @@ def load_config(config_path: str) -> Dict[str, Any]:
 def create_dataloaders(cfg: Dict[str, Any]):
     """创建时序训练集和单帧验证集"""
     ds_cfg = cfg["dataset_config"]
+    aug_cfg = cfg.get("augmentation_config", {})
     train_cfg = cfg["training_config"]
 
     train_paths = ds_cfg.get("train_paths", [])
     val_paths = ds_cfg.get("val_paths", [])
+    use_strong_aug = aug_cfg.get("use_strong_aug", False)
 
     if len(train_paths) == 1:
         train_dataset = TTTSNetTemporalDataset(
@@ -64,12 +66,14 @@ def create_dataloaders(cfg: Dict[str, Any]):
             mode="train",
             img_size=ds_cfg.get("img_size", 448),
             binary=ds_cfg.get("binary", True),
+            use_strong_aug=use_strong_aug,
         )
     else:
         from torch.utils.data import ConcatDataset
         train_dataset = ConcatDataset([
             TTTSNetTemporalDataset(p, mode="train", img_size=ds_cfg.get("img_size", 448),
-                                   binary=ds_cfg.get("binary", True))
+                                   binary=ds_cfg.get("binary", True),
+                                   use_strong_aug=use_strong_aug)
             for p in train_paths
         ])
 

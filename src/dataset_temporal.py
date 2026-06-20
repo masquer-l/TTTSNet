@@ -10,6 +10,8 @@ from torch.utils.data import Dataset
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
+from utils.custom_augmentations import CustomDefectsAugmentation
+
 
 class TTTSNetTemporalDataset(Dataset):
     """
@@ -18,6 +20,8 @@ class TTTSNetTemporalDataset(Dataset):
 
     注意：为保证时序 loss 的时空对齐，本数据集对 3 帧应用同一组增强参数
     （确定性 resize + normalize，同步颜色增强，同步水平翻转）。
+    可选强增强（use_strong_aug=True）会加入 CustomDefectsAugmentation，
+    同样通过 ReplayCompose 在三帧间同步。
     """
 
     def __init__(
@@ -26,18 +30,20 @@ class TTTSNetTemporalDataset(Dataset):
         mode: str = "train",
         img_size: int = 448,
         binary: bool = True,
+        use_strong_aug: bool = False,
     ):
         assert mode in ["train", "valid"]
         self.data_path = data_path
         self.mode = mode
         self.img_size = img_size
         self.binary = binary
+        self.use_strong_aug = use_strong_aug
 
         self.video_clips = self._build_video_clips()
         self.total_clips = len(self.video_clips)
 
-        # 使用时序同步增强：对 3 帧应用同一组随机参数，保证时序一致性
-        self.train_transform = A.ReplayCompose([
+        # 基础训练增强（所有 temporal 实验共享）
+        base_train_transforms = [
             A.Resize(self.img_size, self.img_size),
             A.ColorJitter(saturation=0.2, hue=0.15, p=0.3),
             A.RandomBrightnessContrast(
@@ -45,7 +51,35 @@ class TTTSNetTemporalDataset(Dataset):
             A.CLAHE(clip_limit=1.0, tile_grid_size=(16, 16), p=0.15),
             A.Normalize(),
             ToTensorV2(),
-        ])
+        ]
+
+        if self.use_strong_aug:
+            # 在 resize 后、normalize 前插入与 baseline 类似的强增强
+            # 注意：水平翻转已在 transform 前通过 numpy 同步完成，此处不再重复
+            strong_transforms = [
+                A.VerticalFlip(p=0.5),
+                A.OneOf([
+                    A.Blur(blur_limit=(3, 7), p=0.25),
+                    A.MotionBlur(blur_limit=(3, 7), p=0.45)
+                ], p=0.2),
+                CustomDefectsAugmentation(p=0.5),
+                A.ShiftScaleRotate(
+                    border_mode=cv2.BORDER_CONSTANT,
+                    shift_limit=0.025,
+                    rotate_limit=40,
+                    scale_limit=0.2,
+                    p=0.2,
+                ),
+            ]
+            # 插入到 Resize 之后、ColorJitter 之前
+            base_train_transforms = [
+                base_train_transforms[0],
+                *strong_transforms,
+                *base_train_transforms[1:],
+            ]
+
+        # 使用时序同步增强：对 3 帧应用同一组随机参数，保证时序一致性
+        self.train_transform = A.ReplayCompose(base_train_transforms)
 
         self.valid_transform = A.ReplayCompose([
             A.Resize(self.img_size, self.img_size),
