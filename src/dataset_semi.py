@@ -108,6 +108,14 @@ class TTTSNetSemiDataset(Dataset):
 
         label = self._load_label(lbl_path)
 
+        # 伪标签可能与原图尺寸不同，先对齐到原图尺寸再进入 transform
+        if label.shape[:2] != image.shape[:2]:
+            label = cv2.resize(
+                label,
+                (image.shape[1], image.shape[0]),
+                interpolation=cv2.INTER_NEAREST,
+            )
+
         if self.mode == "train":
             transformed = self.train_transform(image=image, mask=label)
         else:
