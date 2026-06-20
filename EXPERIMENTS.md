@@ -14,8 +14,52 @@
 | 2 | TTS-Net-Temporal v1 (λ=0.1) | Phase 3 | `experiments/tttsnet_temporal_20260620_013149/tttsnet_temporal_20260620_013154/` | ⏹️ 停止 | 0.5491 | 18 | 35 epochs 停止，未超 baseline |
 | 3 | TTS-Net-Temporal v2 (λ=1.0) | Phase 3 | `experiments/tttsnet_temporal_v2_20260620_021245/tttsnet_temporal_v2_20260620_021249/` | ✅ 完成待分析 | 0.5459 | - | 100 epochs 完成，仍未超 baseline |
 | 4 | Baseline vs Temporal v1 对比 | Phase 3 | `experiments/comparison_baseline_vs_temporal_v1/` | ✅ 完成 | - | - | 对比表格和曲线 |
-| 5 | TTS-Net-Semi（伪标签+有标注） | Phase 4 | `experiments/tttsnet_semi_20260620_085333/tttsnet_semi_20260620_085338/` | 🔄 进行中 | 0.4630 (epoch 10) | 10 | 100 epochs 计划，训练已启动 |
-| 6 | TTS-Net-Temporal v3（强同步增强，λ=0.1） | Phase 3 | `configs/config_temporal_v3.json` | ⏳ 待执行 | - | - | 待 semi 训练完成后启动 |
+| 5 | TTS-Net-Semi（伪标签+有标注） | Phase 4 | `experiments/tttsnet_semi_20260620_085333/tttsnet_semi_20260620_085338/` | ⏸️ 已暂停 | 0.4630 (epoch 10) | 10 | 按诊断建议暂停，优先做实 baseline |
+| 6 | TTS-Net-Temporal v3（强同步增强，λ=0.1） | Phase 3 | `configs/config_temporal_v3.json` | ⏳ 待执行 | - | - | 待 AUFL quick check 完成后决定 |
+| 7 | B3 AUFL loss 30ep quick check | Phase 2 | `experiments/tttsnet_aufl_30ep_20260620_103645/tttsnet_aufl_30ep_20260620_103650/` | 🔄 进行中 | - | - | 验证 AUFL 是否优于当前 Dice+BCE+CE |
+
+---
+
+## 诊断实验结果
+
+### B1 标签唯一值统计
+
+| 数据集 | 标签值 | 像素占比 | 出现图片数 |
+|---|---|---|---|
+| Train | 0 | 88.72% | 2060 |
+| Train | 1 | 8.80% | 2043 |
+| Train | 2 | 1.11% | 581 |
+| Train | 3 | 1.37% | 293 |
+| Val | 0 | 86.83% | 658 |
+| Val | 1 | 9.53% | 648 |
+| Val | 2 | 1.95% | 320 |
+| Val | 3 | 1.69% | 83 |
+
+**结论**: 当前 `label > 1 -> 0` 的处理方式是正确的。把 value=2,3 也当前景反而会显著降低 val_mIoU（最佳 0.497 vs 当前 0.601）。value=2,3 不是目标血管区域。
+
+### B2 验证集阈值扫描（Single best checkpoint）
+
+| 标签处理方式 | best threshold | best val_mIoU | val_mIoU @ 0.5 |
+|---|---|---|---|
+| 只保留 value=1 | 0.4 | **0.6014** | 0.5984 |
+| 保留 value=1,2,3 | 0.3 | 0.4973 | 0.4897 |
+
+**结论**: 0.5 阈值不是主要瓶颈；标签处理正确。
+
+### S1 伪标签质量审计（100 张随机样本）
+
+| 指标 | 结果 |
+|---|---|
+| 总伪标签数 | 18745 |
+| 面积占比 | mean=11.43%, median=11.53%, max=29.01% |
+| 连通区域数 | mean=3.71, median=3, max=10 |
+| 空 mask | 0 |
+| 近全图 mask (>95%) | 0 |
+| 启发式 good | 90% |
+| 启发式 medium | 10% |
+| 启发式 bad | 0% |
+
+**结论**: 伪标签质量较好，不像之前担心的"噪声主导"。但保留率 94% 仍偏宽，后续可尝试更严格的筛选策略。
 
 ---
 
@@ -60,8 +104,11 @@
 ## 关键结论
 
 1. **Baseline 0.599 是当前最佳结果**，未达 0.65 目标。
-2. **Temporal 一致性约束未能提升性能**（v1: 0.549, v2: 0.546）。相关实验保留在 `experiments/` 根目录，待进一步分析。
-3. **Phase 4 半监督** 已启动，当前 epoch 9 val_mIoU = 0.459，仍在训练中。
+2. **标签处理无误**：value=2,3 不是目标血管，当前 `label > 1 -> 0` 正确。
+3. **阈值 0.5 接近最优**：最佳阈值 0.4 仅比 0.5 高 0.003 mIoU。
+4. **Temporal 一致性约束未能提升性能**（v1: 0.549, v2: 0.546），待 AUFL 实验后启动诊断实验 T1。
+5. **伪标签质量较好**：100 张样本中 90% good, 10% medium, 0% bad。
+6. **AUFL loss 30ep quick check 已启动**，用于判断 loss 设计是否是 baseline 瓶颈。
 
 ---
 

@@ -1,7 +1,7 @@
 # TTTSNet-Research v2.0 实验进展摘要
 
 **更新时间:** 2026-06-20  
-**当前阶段:** Phase 4 半监督训练已启动并运行中  
+**当前阶段:** 按诊断建议优先做实 Single baseline；AUFL quick check 运行中；Semi 已暂停  
 
 ---
 
@@ -49,15 +49,24 @@
 
 ## 进行中实验
 
-### Phase 4: TTS-Net-Semi（进行中）
+### Phase 4: TTS-Net-Semi（已暂停）
 
-- **状态**: 🔄 训练中（已跑 9 epochs）
+- **状态**: ⏸️ 已暂停（按诊断建议优先做实 baseline）
 - **实验目录**: `TTTSNet/experiments/tttsnet_semi_20260620_085333/tttsnet_semi_20260620_085338/`
-- **当前结果**: val_mIoU = **0.4594** (epoch 9)，持续提升中
+- **当前结果**: val_mIoU = **0.4630** (epoch 10)
 - **代码修复**: `src/dataset_semi.py` 已修复 image/mask 尺寸对齐问题
 - **数据**: 2060 有标注 + 18935 伪标签（confidence≥0.9），共 20995 训练样本
+- **伪标签质量审计**: 100 张随机样本中 90% good, 10% medium, 0% bad
 - **阻塞点**: 已解除
-- **下一步**: 等待 100 epochs 训练完成，观察是否能超过 baseline 0.599
+- **下一步**: 待 baseline 做实、伪标签筛选策略优化后，再重启 semi 实验
+
+### B3: AUFL loss 30ep Quick Check（进行中）
+
+- **状态**: 🔄 训练中
+- **实验目录**: `TTTSNet/experiments/tttsnet_aufl_30ep_20260620_103645/tttsnet_aufl_30ep_20260620_103650/`
+- **目的**: 验证 AsymmetricUnifiedFocalLoss 是否优于当前 Dice+BCE+CE
+- **配置**: `configs/config_aufl_30ep.json`
+- **下一步**: 30 epochs 后比较 val_mIoU 曲线
 
 ### 已归档的失败尝试
 
@@ -72,29 +81,32 @@
 1. **原论文 TTTSNet 不是 ResNet-50 backbone**：源码显示为 custom lightweight network，448×448 输入。
 2. **Custom augmentations 已修复 Albumentations 2.x 兼容性**：使用自定义 `CustomDefectsAugmentation` 组合实现。
 3. **Baseline 0.599 未达 0.65**：可能原因包括 loss 组合、增强策略、输入尺寸等。
-4. **Temporal 一致性约束目前未能提升性能**：
-   - v1 (λ=0.1): 0.549 < 0.599
-   - v2 (λ=1.0): 0.546 < 0.599
-   - 需要先排查实现 bug，再决定是否继续调参
-5. **Phase 4 半监督**:
-   - 伪标签生成成功：20133 帧中 18935 帧（94.0%）通过 confidence≥0.9 阈值
-   - 首次 semi 训练因 image/mask 尺寸不一致失败，已修复并重新启动
-   - 当前 epoch 9 val_mIoU = 0.459，仍在训练中
+4. **标签处理已验证无误**:
+   - Train/Val masks 存在 value=0,1,2,3
+   - 当前 `label > 1 -> 0` 只保留 value=1 是正确的
+   - 把 value=2,3 也当前景会使 val_mIoU 从 0.599 降到 0.497
+5. **阈值扫描**:
+   - Single best checkpoint 最佳阈值 0.4，mIoU=0.6014
+   - 0.5 阈值 mIoU=0.5984，差距极小
+6. **伪标签质量较好**:
+   - 100 张随机样本：90% good, 10% medium, 0% bad
+   - 面积分布合理（mean 11.4%），无空 mask 或全图 mask
+7. **AUFL loss quick check** 已启动，30 epochs 后评估是否优于当前 loss
+8. **Semi 训练已暂停**，等待 baseline 做实和伪标签策略优化
+### 立即
+1. 等待 AUFL 30ep quick check 完成，判断 loss 是否为主要瓶颈
+2. 若 AUFL 有效，跑完整 100ep AUFL baseline；若无效，继续探索其他因素（输入尺寸、数据划分等）
+3. 执行 T1 Temporal no-loss 诊断实验
 
----
+### 短期
+1. 根据 AUFL 结果决定是否引入更严格的伪标签筛选（mean confidence、area filtering）
+2. 设计 3 seeds baseline 实验，报告 mean±std
+3. 尝试输入尺寸 512/640
 
-## 下步计划
-
-### 立即（阶段 A 整理后续）
-1. ✅ 清理废弃实验目录（2-epoch 测试 baseline、1-epoch 测试 temporal）
-2. ✅ 删除 `src/__pycache__/`
-3. ⏳ 建立 `EXPERIMENTS.md` 统一索引
-4. ⏳ 更新 GSD `STATE.md` 和 `ROADMAP.md`
-
-### 短期（分析与决策）
-1. 深入分析 temporal v1/v2 的训练曲线，确认时序 loss 行为是否正常
-2. 可视化 temporal dataset 的输出，确认增强策略是否足够强
-3. 重新运行伪标签生成，确认 Phase 4 可行性
+### 中期
+1. 合并 `train.py` / `train_temporal.py` / `train_semi.py`
+2. 统一 dataset 基类
+3. 统一 config 管理
 
 ### 中期（代码重构）
 1. 合并 `train.py` / `train_temporal.py` / `train_semi.py`
@@ -120,4 +132,5 @@
 | Temporal v2 (λ=1.0) | `experiments/tttsnet_temporal_v2_20260620_021245/tttsnet_temporal_v2_20260620_021249/` | ✅ 完成待分析 |
 | Baseline vs Temporal v1 对比 | `experiments/comparison_baseline_vs_temporal_v1/` | ✅ 完成 |
 | Pseudo-label 日志 | `experiments/pseudo_label_generation.log` | ✅ 成功完成 |
-| Semi-supervised | `experiments/tttsnet_semi_20260620_085333/tttsnet_semi_20260620_085338/` | 🔄 进行中 |
+| AUFL 30ep quick check | `experiments/tttsnet_aufl_30ep_20260620_103645/tttsnet_aufl_30ep_20260620_103650/` | 🔄 进行中 |
+| Semi-supervised | `experiments/tttsnet_semi_20260620_085333/tttsnet_semi_20260620_085338/` | ⏸️ 已暂停 |
