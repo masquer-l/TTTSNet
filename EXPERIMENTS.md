@@ -14,7 +14,8 @@
 | 2 | TTS-Net-Temporal v1 (λ=0.1) | Phase 3 | `experiments/tttsnet_temporal_20260620_013149/tttsnet_temporal_20260620_013154/` | ⏹️ 停止 | 0.5491 | 18 | 35 epochs 停止，未超 baseline |
 | 3 | TTS-Net-Temporal v2 (λ=1.0) | Phase 3 | `experiments/tttsnet_temporal_v2_20260620_021245/tttsnet_temporal_v2_20260620_021249/` | ✅ 完成待分析 | 0.5459 | - | 100 epochs 完成，仍未超 baseline |
 | 4 | Baseline vs Temporal v1 对比 | Phase 3 | `experiments/comparison_baseline_vs_temporal_v1/` | ✅ 完成 | - | - | 对比表格和曲线 |
-| 5 | TTS-Net-Semi（伪标签+有标注） | Phase 4 | `experiments/tttsnet_semi_20260620_085333/tttsnet_semi_20260620_085338/` | 🔄 进行中 | 0.4594 (epoch 9) | 9 | 100 epochs 计划，训练已启动 |
+| 5 | TTS-Net-Semi（伪标签+有标注） | Phase 4 | `experiments/tttsnet_semi_20260620_085333/tttsnet_semi_20260620_085338/` | 🔄 进行中 | 0.4630 (epoch 10) | 10 | 100 epochs 计划，训练已启动 |
+| 6 | TTS-Net-Temporal v3（强同步增强，λ=0.1） | Phase 3 | `configs/config_temporal_v3.json` | ⏳ 待执行 | - | - | 待 semi 训练完成后启动 |
 
 ---
 
