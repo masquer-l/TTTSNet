@@ -30,7 +30,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from models.TTTSNet import TTTSNet
 from dataset_tttsnet import TTTSNetDataset
-from utils.losses import DiceLoss
+from utils.losses import DiceLoss, AsymmetricUnifiedFocalLoss
 from utils.metrics_binary import calc_miou_and_dice, calc_pixel_accuracy
 from utils.tracker import ExperimentTracker
 
@@ -150,8 +150,19 @@ def create_scheduler(optimizer: torch.optim.Optimizer, cfg: Dict[str, Any]):
 def create_losses(cfg: Dict[str, Any], device: torch.device):
     """创建损失函数"""
     train_cfg = cfg["training_config"]
+    loss_type = train_cfg.get("loss_type", "default")
     dice_weight = train_cfg.get("loss_dice_weight", 1.0)
     bce_weight = train_cfg.get("loss_bce_weight", 1.0)
+
+    if loss_type == "aufl":
+        # AsymmetricUnifiedFocalLoss，适合类别不平衡的细血管分割
+        auft_loss = AsymmetricUnifiedFocalLoss(
+            weight=train_cfg.get("aufl_weight", 0.5),
+            delta=train_cfg.get("aufl_delta", 0.6),
+            gamma=train_cfg.get("aufl_gamma", 0.2),
+            n_classes=2,
+        ).to(device)
+        return auft_loss, None, None, dice_weight, bce_weight
 
     dice_loss = DiceLoss(mode="binary", from_logits=True).to(device)
     bce_loss = nn.BCEWithLogitsLoss().to(device)
@@ -162,13 +173,22 @@ def create_losses(cfg: Dict[str, Any], device: torch.device):
 
 def compute_loss(pred: torch.Tensor, target: torch.Tensor,
                  dice_loss, bce_loss, ce_loss,
-                 dice_weight: float, bce_weight: float):
+                 dice_weight: float, bce_weight: float, loss_type: str = "default"):
     """
     pred: [B, 2, H, W] logits (binary class: background + vessel)
     target: [B, 1, H, W] or [B, H, W] with values 0/1
     """
     if target.dim() == 4:
         target = target.squeeze(1)
+
+    if loss_type == "aufl" and dice_loss is not None:
+        # AUFL 内部自己做激活和 one-hot
+        loss = dice_loss(pred, target.long())
+        return loss, {
+            "loss_dice": 0.0,
+            "loss_bce": 0.0,
+            "loss_ce": loss.item(),
+        }
 
     # 提取 vessel logit [B, 1, H, W]
     vessel_logit = pred[:, 1:2, :, :]
@@ -194,7 +214,7 @@ def compute_loss(pred: torch.Tensor, target: torch.Tensor,
 def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim.Optimizer,
                     dice_loss, bce_loss, ce_loss, dice_weight: float, bce_weight: float,
                     device: torch.device, scaler: GradScaler, epoch: int, tracker: ExperimentTracker,
-                    grad_accum: int = 1, use_amp: bool = True):
+                    grad_accum: int = 1, use_amp: bool = True, loss_type: str = "default"):
     """训练一个 epoch"""
     model.train()
     total_loss = 0.0
@@ -211,7 +231,7 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim
         with autocast(enabled=use_amp):
             outputs = model(images)
             loss, loss_dict = compute_loss(
-                outputs, masks, dice_loss, bce_loss, ce_loss, dice_weight, bce_weight
+                outputs, masks, dice_loss, bce_loss, ce_loss, dice_weight, bce_weight, loss_type=loss_type
             )
             loss = loss / grad_accum
 
@@ -261,7 +281,7 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim
 @torch.no_grad()
 def validate(model: nn.Module, loader: DataLoader, device: torch.device,
              dice_loss, bce_loss, ce_loss, dice_weight: float, bce_weight: float,
-             use_amp: bool = True):
+             use_amp: bool = True, loss_type: str = "default"):
     """验证一个 epoch"""
     model.eval()
     total_loss = 0.0
@@ -277,7 +297,7 @@ def validate(model: nn.Module, loader: DataLoader, device: torch.device,
 
         with autocast(enabled=use_amp):
             outputs = model(images)
-            loss, _ = compute_loss(outputs, masks, dice_loss, bce_loss, ce_loss, dice_weight, bce_weight)
+            loss, _ = compute_loss(outputs, masks, dice_loss, bce_loss, ce_loss, dice_weight, bce_weight, loss_type=loss_type)
 
         # 计算指标：取 vessel 概率
         vessel_prob = torch.softmax(outputs, dim=1)[:, 1:2, :, :]
@@ -385,6 +405,7 @@ def main():
     optimizer = create_optimizer(model, cfg)
     scheduler = create_scheduler(optimizer, cfg)
     dice_loss, bce_loss, ce_loss, dice_weight, bce_weight = create_losses(cfg, device)
+    loss_type = train_cfg.get("loss_type", "default")
 
     # AMP
     use_amp = bool(train_cfg.get("use_amp", 1))
@@ -406,13 +427,13 @@ def main():
             dice_loss, bce_loss, ce_loss, dice_weight, bce_weight,
             device, scaler, epoch, tracker,
             grad_accum=train_cfg.get("gradient_accumulation_steps", 1),
-            use_amp=use_amp,
+            use_amp=use_amp, loss_type=loss_type,
         )
 
         val_metrics = validate(
             model, val_loader, device,
             dice_loss, bce_loss, ce_loss, dice_weight, bce_weight,
-            use_amp=use_amp,
+            use_amp=use_amp, loss_type=loss_type,
         )
 
         epoch_time = time.time() - epoch_start
