@@ -16,8 +16,8 @@ class TTTSNetTemporalDataset(Dataset):
     TTTSNet 时序数据集：返回 3 帧连续片段 [t-1, t, t+1] 和中间帧 mask。
     3 帧共享同一个模型，训练时用时序一致性约束相邻帧输出。
 
-    注意：为保证时序 loss 的空间对齐，本数据集只做确定性的 resize + normalize，
-    不做随机几何变换。后续可加入基于 ReplayCompose 的一致增强。
+    注意：为保证时序 loss 的时空对齐，本数据集对 3 帧应用同一组增强参数
+    （确定性 resize + normalize，同步颜色增强，同步水平翻转）。
     """
 
     def __init__(
@@ -36,7 +36,8 @@ class TTTSNetTemporalDataset(Dataset):
         self.video_clips = self._build_video_clips()
         self.total_clips = len(self.video_clips)
 
-        self.train_transform = A.Compose([
+        # 使用时序同步增强：对 3 帧应用同一组随机参数，保证时序一致性
+        self.train_transform = A.ReplayCompose([
             A.Resize(self.img_size, self.img_size),
             A.ColorJitter(saturation=0.2, hue=0.15, p=0.3),
             A.RandomBrightnessContrast(
@@ -46,7 +47,7 @@ class TTTSNetTemporalDataset(Dataset):
             ToTensorV2(),
         ])
 
-        self.valid_transform = A.Compose([
+        self.valid_transform = A.ReplayCompose([
             A.Resize(self.img_size, self.img_size),
             A.Normalize(),
             ToTensorV2(),
@@ -119,12 +120,21 @@ class TTTSNetTemporalDataset(Dataset):
             labels = [np.fliplr(lbl).copy() for lbl in labels]
 
         if self.mode == "train":
-            transformed_images = [self.train_transform(image=img)["image"] for img in images]
-            transformed_label = self.train_transform(image=images[1], mask=labels[1])
+            transform = self.train_transform
         else:
-            transformed_images = [self.valid_transform(image=img)["image"] for img in images]
-            transformed_label = self.valid_transform(image=images[1], mask=labels[1])
-        mask_tensor = transformed_label["mask"].unsqueeze(0).float()
+            transform = self.valid_transform
+
+        # 中间帧同步增强 image + mask，并记录随机参数
+        middle = transform(image=images[1], mask=labels[1])
+        replay_params = middle["replay"]
+
+        # 用同一组参数增强相邻帧，保证三帧增强一致
+        transformed_images = [
+            A.ReplayCompose.replay(replay_params, image=images[0])["image"],
+            middle["image"],
+            A.ReplayCompose.replay(replay_params, image=images[2])["image"],
+        ]
+        mask_tensor = middle["mask"].unsqueeze(0).float()
 
         clip_tensor = torch.stack(transformed_images, dim=0)  # [3, 3, H, W]
 

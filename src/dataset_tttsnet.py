@@ -1,6 +1,5 @@
 import os
 import glob
-import random
 from typing import Tuple, List
 
 import cv2
@@ -15,56 +14,8 @@ from utils.custom_augmentations import (
     AddLaserPointer,
     AddOpticalFiber,
     AddStructuralDefects,
+    CustomDefectsAugmentation,
 )
-
-
-class CustomDefectsAugmentation(A.ImageOnlyTransform):
-    """
-    组合自定义医学图像缺陷增强（激光、灰尘、结构缺陷、光纤）。
-    原论文使用嵌套 A.OneOf + A.Sequential 组合；Albumentations 2.x 对自定义 transform
-    的 OneOf 支持有变化，因此用一个自定义 transform 模拟原分布。
-    """
-
-    def __init__(self, always_apply=False, p=0.5):
-        super().__init__(always_apply, p)
-        self.laser = AddLaserPointer(p=1.0)
-        self.dust = AddDustParticles(p=1.0)
-        self.structural = AddStructuralDefects(p=1.0)
-        self.fiber = AddOpticalFiber(p=1.0)
-
-    def apply(self, img, **params):
-        # 模拟原论文的缺陷组合分布
-        r = random.random()
-        if r < 0.10:
-            img = self.laser(image=img)["image"]
-        elif r < 0.25:
-            img = self.dust(image=img)["image"]
-        elif r < 0.40:
-            img = self.structural(image=img)["image"]
-        elif r < 0.65:
-            img = self.fiber(image=img)["image"]
-        elif r < 0.75:
-            img = self.dust(image=img)["image"]
-            img = self.structural(image=img)["image"]
-        elif r < 0.85:
-            img = self.laser(image=img)["image"]
-            img = self.fiber(image=img)["image"]
-        elif r < 0.92:
-            img = self.laser(image=img)["image"]
-            img = self.dust(image=img)["image"]
-            img = self.fiber(image=img)["image"]
-        elif r < 0.98:
-            img = self.laser(image=img)["image"]
-            img = self.structural(image=img)["image"]
-            img = self.fiber(image=img)["image"]
-        else:
-            img = self.dust(image=img)["image"]
-            img = self.structural(image=img)["image"]
-            img = self.fiber(image=img)["image"]
-        return img
-
-    def get_transform_init_args_names(self):
-        return ()
 
 
 class TTTSNetDataset(Dataset):
