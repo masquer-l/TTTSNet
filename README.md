@@ -126,12 +126,18 @@ python tools/train.py --config configs/config.json --work_dir experiments/debug
    - 有价值的小文件（`EXPERIMENT.md`、`summary.json`、`config.json`、`comparison_*.csv/png`）应显式 `git add -f` 提交。
    - 每个实验目录应包含 `EXPERIMENT.md`（或 `EXPERIMENT_INCOMPLETE.md`），记录配置、结论、待办。
 
-3. **可复现性**
+3. **废弃实验归档**
+   - `experiments/deprecated/` 仅用于存放因**代码异常中断、配置错误、无意义的调试运行**导致结果不可用的实验。
+   - 结果未达预期但训练过程正常的实验，仍保留在 `experiments/` 根目录供后续分析。
+   - 归档前在对应 `EXPERIMENT.md`（或实验目录根）注明归档原因和关键日志片段。
+   - `experiments/` 根目录只保留：正式基线、已完成且纳入结论的实验、当前正在进行的实验、结果未达预期但可供分析的实验。
+
+4. **可复现性**
    - 每次运行 shell wrapper 会自动将配置快照复制到实验目录。
    - 提交代码变更前，确保 `configs/` 中的默认配置与最近一次成功实验一致。
    -  seeds 固定：所有训练脚本默认读取 `training_config.seed`，并设置 `torch.backends.cudnn.deterministic=True`。
 
-4. **分支与阶段**
+5. **分支与阶段**
    - 新实验/重构在独立分支进行，验证成功后再合并到主分支。
    - 主分支上的 `configs/` 应始终保持可运行的默认配置。
 

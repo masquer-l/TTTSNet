@@ -54,7 +54,7 @@
 - **状态**: ⏸️ 伪标签生成中断/未完成
 - **代码**: `tools/train_semi.py`, `src/dataset_semi.py`, `tools/generate_pseudo_labels.py` 已就绪
 - **输出目录**: `TTTSNet/pseudo_labels/`（当前为空）
-- **日志**: `TTTSNet/experiments/pseudo_label_generation.log`
+- **日志**: `TTTSNet/experiments/deprecated/pseudo_label_generation.log`
 - **阻塞点**: 需要确认伪标签生成是否真的完成，以及置信度阈值 0.9 是否过高导致保存率为 0
 - **下一步**: 重新运行伪标签生成，或降低 confidence_threshold 验证
 
@@ -109,4 +109,4 @@
 | Temporal v1 (λ=0.1) | `experiments/tttsnet_temporal_20260620_013149/tttsnet_temporal_20260620_013154/` | ⏹️ 停止 |
 | Temporal v2 (λ=1.0) | `experiments/tttsnet_temporal_v2_20260620_021245/tttsnet_temporal_v2_20260620_021249/` | ✅ 完成待分析 |
 | Baseline vs Temporal v1 对比 | `experiments/comparison_baseline_vs_temporal_v1/` | ✅ 完成 |
-| Pseudo-label 日志 | `experiments/pseudo_label_generation.log` | ⏸️ 中断 |
+| Pseudo-label 日志 | `experiments/deprecated/pseudo_label_generation.log` | ⏸️ 中断（已归档） |

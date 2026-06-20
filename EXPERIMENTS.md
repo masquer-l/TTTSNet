@@ -17,16 +17,26 @@
 
 ---
 
-## 已清理/归档的实验
+## `experiments/deprecated/` 归档说明
 
-以下目录因是早期测试或无效运行，已从 `experiments/` 中移除：
+`deprecated/` 仅用于存放因**代码异常中断、配置错误、无意义的调试运行**导致结果不可用的实验产物。
+
+> 注意：结果未达预期但训练过程正常的实验（如 Temporal v1/v2）不放入 `deprecated/`，仍保留在 `experiments/` 根目录供后续分析。
+
+### 当前归档内容
+
+| 归档路径 | 原因 |
+|---|---|
+| `experiments/deprecated/pseudo_label_generation.log` | 伪标签生成因异常中断/失败，未产生有效输出 |
+
+### 已物理删除的调试运行
+
+以下目录为早期无意义的测试运行，已直接删除，仅在此记录：
 
 | 原路径 | 原因 |
 |---|---|
 | `experiments/tttsnet_single_baseline_20260619_232711/` | 仅 2 epochs 的测试运行，非正式 baseline |
 | `experiments/tttsnet_temporal_20260620_012935/` | 仅 1 epoch 的测试运行 |
-
-> 这些目录中的数据未纳入结论。如需恢复，可从 git 历史或备份中找回。
 
 ---
 
@@ -39,14 +49,14 @@
 | 半监督数据集 | `src/dataset_semi.py` | ✅ 就绪 |
 | 半监督配置 | `configs/config_semi.json` | ✅ 就绪 |
 | 伪标签输出目录 | `pseudo_labels/` | ⏸️ 当前为空，生成中断/未完成 |
-| 伪标签日志 | `experiments/pseudo_label_generation.log` | ⏸️ 需检查 |
+| 伪标签日志 | `experiments/deprecated/pseudo_label_generation.log` | ⏸️ 已归档，需检查失败原因 |
 
 ---
 
 ## 关键结论
 
 1. **Baseline 0.599 是当前最佳结果**，未达 0.65 目标。
-2. **Temporal 一致性约束未能提升性能**（v1: 0.549, v2: 0.546）。
+2. **Temporal 一致性约束未能提升性能**（v1: 0.549, v2: 0.546）。相关实验保留在 `experiments/` 根目录，待进一步分析。
 3. **Phase 4 半监督** 需要先解决伪标签生成问题。
 
 ---
