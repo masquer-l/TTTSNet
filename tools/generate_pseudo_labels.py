@@ -49,10 +49,11 @@ class UnlabeledVideoDataset(Dataset):
         if img is None:
             raise ValueError(f"无法读取图像: {img_path}")
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        orig_h, orig_w = img.shape[:2]
         img = cv2.resize(img, (self.img_size, self.img_size))
         img = img.astype(np.float32) / 255.0
         img_tensor = torch.from_numpy(img.transpose(2, 0, 1)).float()
-        return img_tensor, img_path
+        return img_tensor, img_path, (orig_h, orig_w)
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -98,7 +99,7 @@ def generate_pseudo_labels(
     total_count = 0
     high_conf_count = 0
 
-    for images, img_paths in tqdm(loader, desc="Generating pseudo labels"):
+    for images, img_paths, orig_sizes in tqdm(loader, desc="Generating pseudo labels"):
         images = images.to(device, non_blocking=True)
         images = normalize_image(images)
 
@@ -108,6 +109,17 @@ def generate_pseudo_labels(
         for i in range(len(img_paths)):
             total_count += 1
             prob = probs[i]
+            orig_h, orig_w = int(orig_sizes[0][i]), int(orig_sizes[1][i])
+
+            # 上采样概率图到原图尺寸，保证伪标签与原图空间一致
+            if prob.shape != (orig_h, orig_w):
+                prob = F.interpolate(
+                    prob.unsqueeze(0).unsqueeze(0),
+                    size=(orig_h, orig_w),
+                    mode="bilinear",
+                    align_corners=False,
+                ).squeeze()
+
             max_conf = prob.max().item()
 
             if max_conf >= confidence_threshold:
