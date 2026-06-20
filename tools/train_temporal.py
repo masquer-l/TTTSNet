@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-TTTSNet 半监督训练脚本
-使用有标注数据（FetReg）+ 伪标签数据（无标注视频）训练
-伪标签由训练好的 baseline 模型生成
+TTTSNet 时序一致性训练脚本
+训练：3 帧片段输入，共享模型权重，中间帧 GT 监督 + 相邻帧时序一致性约束
+推理：单帧输入（与 baseline 相同）
 """
 
 import argparse
@@ -24,13 +24,13 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from models.TTTSNet import TTTSNet
 from dataset_tttsnet import TTTSNetDataset
-from dataset_semi import TTTSNetSemiDataset
+from dataset_temporal import TTTSNetTemporalDataset
 from utils.losses import DiceLoss
 from utils.metrics_binary import calc_miou_and_dice, calc_pixel_accuracy
 from utils.tracker import ExperimentTracker
@@ -50,29 +50,28 @@ def load_config(config_path: str) -> Dict[str, Any]:
         return json.load(f)
 
 
-def semi_collate_fn(batch):
-    """batch 元素: (image, mask, weight)"""
-    images = torch.stack([item[0] for item in batch], dim=0)
-    masks = torch.stack([item[1] for item in batch], dim=0)
-    weights = torch.tensor([item[2] for item in batch], dtype=torch.float32)
-    return images, masks, weights
-
-
 def create_dataloaders(cfg: Dict[str, Any]):
+    """创建时序训练集和单帧验证集"""
     ds_cfg = cfg["dataset_config"]
     train_cfg = cfg["training_config"]
 
-    labeled_paths = ds_cfg.get("train_paths", [])
-    pseudo_path = ds_cfg.get("pseudo_data_path", "")
+    train_paths = ds_cfg.get("train_paths", [])
     val_paths = ds_cfg.get("val_paths", [])
 
-    train_dataset = TTTSNetSemiDataset(
-        labeled_data_paths=labeled_paths,
-        pseudo_data_path=pseudo_path,
-        mode="train",
-        img_size=ds_cfg.get("img_size", 448),
-        binary=ds_cfg.get("binary", True),
-    )
+    if len(train_paths) == 1:
+        train_dataset = TTTSNetTemporalDataset(
+            data_path=train_paths[0],
+            mode="train",
+            img_size=ds_cfg.get("img_size", 448),
+            binary=ds_cfg.get("binary", True),
+        )
+    else:
+        from torch.utils.data import ConcatDataset
+        train_dataset = ConcatDataset([
+            TTTSNetTemporalDataset(p, mode="train", img_size=ds_cfg.get("img_size", 448),
+                                   binary=ds_cfg.get("binary", True))
+            for p in train_paths
+        ])
 
     if len(val_paths) == 1:
         val_dataset = TTTSNetDataset(
@@ -96,7 +95,6 @@ def create_dataloaders(cfg: Dict[str, Any]):
         num_workers=train_cfg.get("num_workers", 4),
         pin_memory=True,
         drop_last=True,
-        collate_fn=semi_collate_fn,
     )
     val_loader = DataLoader(
         val_dataset,
@@ -107,7 +105,7 @@ def create_dataloaders(cfg: Dict[str, Any]):
         drop_last=False,
     )
 
-    return train_loader, val_loader, train_dataset.get_stats()
+    return train_loader, val_loader
 
 
 def create_model(cfg: Dict[str, Any], device: torch.device):
@@ -145,66 +143,99 @@ def create_losses(cfg: Dict[str, Any], device: torch.device):
     train_cfg = cfg["training_config"]
     dice_weight = train_cfg.get("loss_dice_weight", 1.0)
     bce_weight = train_cfg.get("loss_bce_weight", 1.0)
+    temporal_weight = train_cfg.get("loss_temporal_weight", 0.1)
 
     dice_loss = DiceLoss(mode="binary", from_logits=True).to(device)
-    bce_loss = nn.BCEWithLogitsLoss(reduction="none").to(device)
-    ce_loss = nn.CrossEntropyLoss(reduction="none").to(device)
+    bce_loss = nn.BCEWithLogitsLoss().to(device)
+    ce_loss = nn.CrossEntropyLoss().to(device)
 
-    return dice_loss, bce_loss, ce_loss, dice_weight, bce_weight
+    return dice_loss, bce_loss, ce_loss, dice_weight, bce_weight, temporal_weight
 
 
-def compute_loss(pred: torch.Tensor, target: torch.Tensor, sample_weights: torch.Tensor,
-                 dice_loss, bce_loss, ce_loss, dice_weight: float, bce_weight: float):
-    """sample_weights: [B] per-sample weight for labeled/pseudo"""
+def temporal_consistency_loss(pred_probs: torch.Tensor, lambda_temp: float = 0.1):
+    """
+    pred_probs: [B, 3, 1, H, W] vessel probabilities for 3 frames
+    """
+    p0 = pred_probs[:, 0]
+    p1 = pred_probs[:, 1]
+    p2 = pred_probs[:, 2]
+
+    # uncertainty-based weight: high near 0.5, low near 0/1
+    conf0 = p0 * (1 - p0) * 4
+    conf1 = p1 * (1 - p1) * 4
+    conf2 = p2 * (1 - p2) * 4
+
+    w01 = torch.minimum(conf0, conf1)
+    w12 = torch.minimum(conf1, conf2)
+
+    diff01 = (p0 - p1).abs()
+    diff12 = (p1 - p2).abs()
+
+    loss = (w01 * diff01).mean() + (w12 * diff12).mean()
+    return lambda_temp * loss
+
+
+def compute_supervision_loss(pred: torch.Tensor, target: torch.Tensor,
+                             dice_loss, bce_loss, ce_loss,
+                             dice_weight: float, bce_weight: float):
+    """单帧监督 loss（与 train.py 相同）"""
     if target.dim() == 4:
         target = target.squeeze(1)
 
-    B = pred.size(0)
     vessel_logit = pred[:, 1:2, :, :]
-
     loss_dice = dice_loss(vessel_logit, target.unsqueeze(1).float())
+    loss_bce = bce_loss(vessel_logit, target.unsqueeze(1).float())
+    loss_ce = ce_loss(pred, target.long())
 
-    # BCE with per-sample weighting
-    bce_per_pixel = bce_loss(vessel_logit, target.unsqueeze(1).float())  # [B, 1, H, W]
-    bce_per_sample = bce_per_pixel.view(B, -1).mean(dim=1)  # [B]
-    loss_bce = (bce_per_sample * sample_weights).mean()
-
-    # CE with per-sample weighting
-    ce_per_pixel = ce_loss(pred, target.long())  # [B, H, W]
-    ce_per_sample = ce_per_pixel.view(B, -1).mean(dim=1)  # [B]
-    loss_ce = (ce_per_sample * sample_weights).mean()
-
-    total_loss = dice_weight * loss_dice + bce_weight * loss_bce + 0.5 * loss_ce
-
-    return total_loss, {
+    total = dice_weight * loss_dice + bce_weight * loss_bce + 0.5 * loss_ce
+    return total, {
         "loss_dice": loss_dice.item(),
         "loss_bce": loss_bce.item(),
         "loss_ce": loss_ce.item(),
     }
 
 
+def forward_temporal(model: nn.Module, clip: torch.Tensor):
+    """
+    clip: [B, 3, 3, H, W]
+    return: [B, 3, 2, H, W] logits
+    """
+    B, T, C, H, W = clip.shape
+    clip_flat = clip.view(B * T, C, H, W)
+    logits_flat = model(clip_flat)  # [B*T, 2, H, W]
+    logits = logits_flat.view(B, T, 2, H, W)
+    return logits
+
+
 def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim.Optimizer,
                     dice_loss, bce_loss, ce_loss, dice_weight: float, bce_weight: float,
-                    device: torch.device, scaler: GradScaler, epoch: int, tracker: ExperimentTracker,
-                    grad_accum: int = 1, use_amp: bool = True):
+                    temporal_weight: float, device: torch.device, scaler: GradScaler,
+                    epoch: int, tracker: ExperimentTracker, grad_accum: int = 1,
+                    use_amp: bool = True):
     model.train()
     total_loss = 0.0
-    total_dice = 0.0
-    total_bce = 0.0
-    total_ce = 0.0
+    total_sup = 0.0
+    total_temp = 0.0
     num_batches = 0
 
-    pbar = tqdm(loader, desc=f"Train Semi Epoch {epoch}")
-    for batch_idx, (images, masks, weights) in enumerate(pbar):
-        images = images.to(device, non_blocking=True)
-        masks = masks.to(device, non_blocking=True)
-        weights = weights.to(device, non_blocking=True)
+    pbar = tqdm(loader, desc=f"Train Temporal Epoch {epoch}")
+    for batch_idx, (clips, masks) in enumerate(pbar):
+        clips = clips.to(device, non_blocking=True)  # [B, 3, 3, H, W]
+        masks = masks.to(device, non_blocking=True)  # [B, 1, H, W]
 
         with autocast(enabled=use_amp):
-            outputs = model(images)
-            loss, loss_dict = compute_loss(
-                outputs, masks, weights, dice_loss, bce_loss, ce_loss, dice_weight, bce_weight
+            logits = forward_temporal(model, clips)  # [B, 3, 2, H, W]
+            mid_logits = logits[:, 1, :, :, :]  # [B, 2, H, W]
+
+            sup_loss, loss_dict = compute_supervision_loss(
+                mid_logits, masks, dice_loss, bce_loss, ce_loss, dice_weight, bce_weight
             )
+
+            # 时序一致性 loss
+            probs = torch.softmax(logits, dim=2)[:, :, 1:2, :, :]  # [B, 3, 1, H, W]
+            temp_loss = temporal_consistency_loss(probs, temporal_weight)
+
+            loss = sup_loss + temp_loss
             loss = loss / grad_accum
 
         scaler.scale(loss).backward()
@@ -217,14 +248,15 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim
             optimizer.zero_grad()
 
         total_loss += loss.item() * grad_accum
-        total_dice += loss_dict["loss_dice"]
-        total_bce += loss_dict["loss_bce"]
-        total_ce += loss_dict["loss_ce"]
+        total_sup += sup_loss.item()
+        total_temp += temp_loss.item()
         num_batches += 1
 
         global_step = epoch * len(loader) + batch_idx
         tracker.log_step(global_step, epoch, {
             "train/loss": loss.item() * grad_accum,
+            "train/loss_sup": sup_loss.item(),
+            "train/loss_temporal": temp_loss.item(),
             "train/loss_dice": loss_dict["loss_dice"],
             "train/loss_bce": loss_dict["loss_bce"],
             "train/loss_ce": loss_dict["loss_ce"],
@@ -232,15 +264,14 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim
 
         pbar.set_postfix({
             "loss": f"{loss.item() * grad_accum:.4f}",
-            "dice": f"{loss_dict['loss_dice']:.4f}",
-            "bce": f"{loss_dict['loss_bce']:.4f}",
+            "sup": f"{sup_loss.item():.4f}",
+            "temp": f"{temp_loss.item():.4f}",
         })
 
     return {
         "train/loss": total_loss / max(num_batches, 1),
-        "train/loss_dice": total_dice / max(num_batches, 1),
-        "train/loss_bce": total_bce / max(num_batches, 1),
-        "train/loss_ce": total_ce / max(num_batches, 1),
+        "train/loss_sup": total_sup / max(num_batches, 1),
+        "train/loss_temporal": total_temp / max(num_batches, 1),
     }
 
 
@@ -248,6 +279,7 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim
 def validate(model: nn.Module, loader: DataLoader, device: torch.device,
              dice_loss, bce_loss, ce_loss, dice_weight: float, bce_weight: float,
              use_amp: bool = True):
+    """单帧验证，与 baseline 可比"""
     model.eval()
     total_loss = 0.0
     total_miou = 0.0
@@ -262,9 +294,7 @@ def validate(model: nn.Module, loader: DataLoader, device: torch.device,
 
         with autocast(enabled=use_amp):
             outputs = model(images)
-            # validation 时用 weight=1 计算 loss（仅用于监控）
-            dummy_weights = torch.ones(outputs.size(0), device=device)
-            loss, _ = compute_loss(outputs, masks, dummy_weights, dice_loss, bce_loss, ce_loss, dice_weight, bce_weight)
+            loss, _ = compute_supervision_loss(outputs, masks, dice_loss, bce_loss, ce_loss, dice_weight, bce_weight)
 
         vessel_prob = torch.softmax(outputs, dim=1)[:, 1:2, :, :]
         miou, dice = calc_miou_and_dice(vessel_prob, masks)
@@ -305,8 +335,8 @@ def save_checkpoint(model: nn.Module, optimizer: torch.optim.Optimizer,
 
 
 def main():
-    parser = argparse.ArgumentParser(description="TTTSNet semi-supervised training")
-    parser.add_argument("--config", type=str, default="config_semi.json", help="Path to config JSON")
+    parser = argparse.ArgumentParser(description="TTTSNet temporal consistency training")
+    parser.add_argument("--config", type=str, default="configs/config_temporal.json", help="Path to config JSON")
     parser.add_argument("--work_dir", type=str, default=None, help="Experiment output directory")
     parser.add_argument("--num_epochs", type=int, default=None, help="Override num_epochs")
     parser.add_argument("--debug", type=int, default=None, help="Override debug mode")
@@ -323,7 +353,7 @@ def main():
     set_seed(seed)
 
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    run_name = f"{runtime_cfg.get('run_name', 'tttsnet_semi')}_{timestamp}"
+    run_name = f"{runtime_cfg.get('run_name', 'tttsnet_temporal')}_{timestamp}"
     if args.work_dir:
         exp_dir = Path(args.work_dir) / run_name
     else:
@@ -345,9 +375,8 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    train_loader, val_loader, data_stats = create_dataloaders(cfg)
-    print(f"Data stats: {data_stats}")
-    print(f"Val samples: {len(val_loader.dataset)}")
+    train_loader, val_loader = create_dataloaders(cfg)
+    print(f"Train clips: {len(train_loader.dataset)}, Val samples: {len(val_loader.dataset)}")
 
     model = create_model(cfg, device)
     total_params = sum(p.numel() for p in model.parameters())
@@ -355,7 +384,7 @@ def main():
 
     optimizer = create_optimizer(model, cfg)
     scheduler = create_scheduler(optimizer, cfg)
-    dice_loss, bce_loss, ce_loss, dice_weight, bce_weight = create_losses(cfg, device)
+    dice_loss, bce_loss, ce_loss, dice_weight, bce_weight, temporal_weight = create_losses(cfg, device)
 
     use_amp = bool(train_cfg.get("use_amp", 1))
     scaler = GradScaler(enabled=use_amp)
@@ -370,7 +399,7 @@ def main():
 
         train_metrics = train_one_epoch(
             model, train_loader, optimizer,
-            dice_loss, bce_loss, ce_loss, dice_weight, bce_weight,
+            dice_loss, bce_loss, ce_loss, dice_weight, bce_weight, temporal_weight,
             device, scaler, epoch, tracker,
             grad_accum=train_cfg.get("gradient_accumulation_steps", 1),
             use_amp=use_amp,

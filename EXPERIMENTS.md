@@ -34,10 +34,10 @@
 
 | 组件 | 路径 | 状态 |
 |---|---|---|
-| 伪标签生成脚本 | `generate_pseudo_labels.py` | ✅ 就绪 |
-| 半监督训练脚本 | `train_semi.py` | ✅ 就绪 |
+| 伪标签生成脚本 | `tools/generate_pseudo_labels.py` | ✅ 就绪 |
+| 半监督训练脚本 | `tools/train_semi.py` | ✅ 就绪 |
 | 半监督数据集 | `src/dataset_semi.py` | ✅ 就绪 |
-| 半监督配置 | `config_semi.json` | ✅ 就绪 |
+| 半监督配置 | `configs/config_semi.json` | ✅ 就绪 |
 | 伪标签输出目录 | `pseudo_labels/` | ⏸️ 当前为空，生成中断/未完成 |
 | 伪标签日志 | `experiments/pseudo_label_generation.log` | ⏸️ 需检查 |
 
@@ -64,7 +64,8 @@
 ./scripts/train_temporal_v2.sh configs/config_temporal_v2.json
 
 # Phase 4 pseudo labels
-python generate_pseudo_labels.py \
+python tools/generate_pseudo_labels.py \
+  --config configs/config.json \
   --checkpoint experiments/tttsnet_single_20260619_233051/tttsnet_single_baseline_20260619_233056/checkpoints/best_model.pth \
   --output_dir pseudo_labels/sfy_data_v1
 
@@ -72,4 +73,4 @@ python generate_pseudo_labels.py \
 ./scripts/train_semi.sh configs/config_semi.json
 ```
 
-> 注意：代码重构后（阶段 B），启动脚本和配置路径可能会调整。
+> 注意：路径已对齐到 `configs/` 和 `tools/` 目录结构。

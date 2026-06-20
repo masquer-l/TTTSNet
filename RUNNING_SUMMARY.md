@@ -52,7 +52,7 @@
 ### Phase 4: TTS-Net-Semi 准备
 
 - **状态**: ⏸️ 伪标签生成中断/未完成
-- **代码**: `train_semi.py`, `src/dataset_semi.py`, `generate_pseudo_labels.py` 已就绪
+- **代码**: `tools/train_semi.py`, `src/dataset_semi.py`, `tools/generate_pseudo_labels.py` 已就绪
 - **输出目录**: `TTTSNet/pseudo_labels/`（当前为空）
 - **日志**: `TTTSNet/experiments/pseudo_label_generation.log`
 - **阻塞点**: 需要确认伪标签生成是否真的完成，以及置信度阈值 0.9 是否过高导致保存率为 0

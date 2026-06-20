@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-CONFIG_PATH="${1:-$PROJECT_DIR/config_semi.json}"
+CONFIG_PATH="${1:-$PROJECT_DIR/configs/config_semi.json}"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RUN_NAME="tttsnet_semi_${TIMESTAMP}"
@@ -21,7 +21,7 @@ echo "Config:  $CONFIG_PATH"
 echo "Exp Dir: $EXP_DIR"
 echo "========================================"
 
-python3 "$PROJECT_DIR/train_semi.py" \
+python3 "$PROJECT_DIR/tools/train_semi.py" \
   --config "$CONFIG_PATH" \
   --work_dir "$EXP_DIR" \
   2>&1 | tee "$EXP_DIR/training.log"

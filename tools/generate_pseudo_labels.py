@@ -18,7 +18,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
@@ -130,7 +130,7 @@ def generate_pseudo_labels(
 
 def main():
     parser = argparse.ArgumentParser(description="Generate pseudo labels for unlabeled video frames")
-    parser.add_argument("--config", type=str, default="config.json", help="Path to config JSON")
+    parser.add_argument("--config", type=str, default="configs/config.json", help="Path to config JSON")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to trained model checkpoint")
     parser.add_argument("--unlabeled_path", type=str,
                         default="/autodl-fs/data/masquer.li/temperal_data/sfy_data_v1_20251019/",
