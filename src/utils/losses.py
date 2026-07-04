@@ -26,6 +26,65 @@ MULTICLASS_MODE: str = "multiclass"
 MULTILABEL_MODE: str = "multilabel"
 
 
+def soft_erode(img: torch.Tensor) -> torch.Tensor:
+    if len(img.shape) == 4:
+        # 使用各向同性 3x3 池化，避免对水平/垂直血管结构的偏好
+        return -F.max_pool2d(-img, (3, 3), (1, 1), (1, 1))
+    raise ValueError(f"soft_erode expects [B, C, H, W], got {tuple(img.shape)}")
+
+
+def soft_dilate(img: torch.Tensor) -> torch.Tensor:
+    if len(img.shape) == 4:
+        return F.max_pool2d(img, (3, 3), (1, 1), (1, 1))
+    raise ValueError(f"soft_dilate expects [B, C, H, W], got {tuple(img.shape)}")
+
+
+def soft_open(img: torch.Tensor) -> torch.Tensor:
+    return soft_dilate(soft_erode(img))
+
+
+def soft_skeletonize(img: torch.Tensor, iterations: int = 10) -> torch.Tensor:
+    img = img.clamp(0.0, 1.0)
+    opened = soft_open(img)
+    skeleton = F.relu(img - opened)
+
+    for _ in range(iterations):
+        img = soft_erode(img)
+        opened = soft_open(img)
+        delta = F.relu(img - opened)
+        skeleton = skeleton + F.relu(delta - skeleton * delta)
+    return skeleton
+
+
+class SoftCLDiceLoss(nn.Module):
+    """Differentiable clDice loss for thin vessel topology preservation."""
+
+    def __init__(self, iterations: int = 10, smooth: float = 1.0):
+        super().__init__()
+        self.iterations = iterations
+        self.smooth = smooth
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        if pred.dim() == 3:
+            pred = pred.unsqueeze(1)
+        if target.dim() == 3:
+            target = target.unsqueeze(1)
+
+        pred = pred.float().clamp(0.0, 1.0)
+        target = target.float().clamp(0.0, 1.0)
+
+        pred_skel = soft_skeletonize(pred, self.iterations)
+        target_skel = soft_skeletonize(target, self.iterations)
+
+        tprec = (pred_skel * target).sum(dim=(1, 2, 3))
+        tprec = (tprec + self.smooth) / (pred_skel.sum(dim=(1, 2, 3)) + self.smooth)
+        tsens = (target_skel * pred).sum(dim=(1, 2, 3))
+        tsens = (tsens + self.smooth) / (target_skel.sum(dim=(1, 2, 3)) + self.smooth)
+
+        cl_dice = (2.0 * tprec * tsens + self.smooth) / (tprec + tsens + self.smooth)
+        return 1.0 - cl_dice.mean()
+
+
 class mIoULoss(nn.Module):
     def __init__(self, weight=None, size_average=True, n_classes=4):
         super(mIoULoss, self).__init__()

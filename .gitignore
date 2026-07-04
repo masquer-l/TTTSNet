@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+*.egg
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Experiments and logs
+experiments/*/
+!experiments/comparison_*/
+*.log
+nohup.out
+
+# PyTorch checkpoints
+*.pth
+*.pt
+
+# Data
+data/
+dataset/
+*.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

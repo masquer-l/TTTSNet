@@ -49,7 +49,7 @@ def center_crop(image, new_shape):
 class AddDustParticles(ImageOnlyTransform):
 
     def __init__(self, always_apply=False, p=0.5):
-        super(AddDustParticles, self).__init__(always_apply, p)
+        super(AddDustParticles, self).__init__(p=1.0 if always_apply else p)
 
     def apply(self, img, **params):
         return addDustParticles(img, mode='bernstein')
@@ -58,7 +58,7 @@ class AddDustParticles(ImageOnlyTransform):
 class AddStructuralDefects(ImageOnlyTransform):
 
     def __init__(self, always_apply=False, p=0.5):
-        super(AddStructuralDefects, self).__init__(always_apply, p)
+        super(AddStructuralDefects, self).__init__(p=1.0 if always_apply else p)
 
     def apply(self, img, **params):
         return addStructuralDefects(img)
@@ -67,7 +67,7 @@ class AddStructuralDefects(ImageOnlyTransform):
 class AddLaserPointer(ImageOnlyTransform):
 
     def __init__(self, always_apply=False, p=0.5):
-        super(AddLaserPointer, self).__init__(always_apply, p)
+        super(AddLaserPointer, self).__init__(p=1.0 if always_apply else p)
 
     def apply(self, img, **params):
         # detect laser, if it already exists do not add augmentation
@@ -96,7 +96,7 @@ class AddOpticalFiber(ImageOnlyTransform):
             always_apply=False,
             p=0.5
     ):
-        super(AddOpticalFiber, self).__init__(always_apply, p)
+        super(AddOpticalFiber, self).__init__(p=1.0 if always_apply else p)
         self.dark_gradient_inside = dark_gradient_inside
         self.draw_simple_cladding = draw_simple_cladding
         self.fibers_density_limit = to_tuple(fibers_density)
@@ -728,3 +728,50 @@ def addOpticalFiber(img, fibers_density=0.2, dark_gradient_inside=False, draw_si
             canvas = adjust_brightness(canvas, 1.15)
 
     return canvas
+
+
+class CustomDefectsAugmentation(ImageOnlyTransform):
+    """
+    组合自定义医学图像缺陷增强（激光、灰尘、结构缺陷、光纤）。
+    模拟原论文中 A.OneOf + A.Sequential 的缺陷组合分布。
+    """
+
+    def __init__(self, always_apply=False, p=0.5):
+        super().__init__(p=1.0 if always_apply else p)
+        self.laser = AddLaserPointer(p=1.0)
+        self.dust = AddDustParticles(p=1.0)
+        self.structural = AddStructuralDefects(p=1.0)
+        self.fiber = AddOpticalFiber(p=1.0)
+
+    def apply(self, img, **params):
+        r = random.random()
+        if r < 0.10:
+            img = self.laser(image=img)["image"]
+        elif r < 0.25:
+            img = self.dust(image=img)["image"]
+        elif r < 0.40:
+            img = self.structural(image=img)["image"]
+        elif r < 0.65:
+            img = self.fiber(image=img)["image"]
+        elif r < 0.75:
+            img = self.dust(image=img)["image"]
+            img = self.structural(image=img)["image"]
+        elif r < 0.85:
+            img = self.laser(image=img)["image"]
+            img = self.fiber(image=img)["image"]
+        elif r < 0.92:
+            img = self.laser(image=img)["image"]
+            img = self.dust(image=img)["image"]
+            img = self.fiber(image=img)["image"]
+        elif r < 0.98:
+            img = self.laser(image=img)["image"]
+            img = self.structural(image=img)["image"]
+            img = self.fiber(image=img)["image"]
+        else:
+            img = self.dust(image=img)["image"]
+            img = self.structural(image=img)["image"]
+            img = self.fiber(image=img)["image"]
+        return img
+
+    def get_transform_init_args_names(self):
+        return ()

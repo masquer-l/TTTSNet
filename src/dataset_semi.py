@@ -1,0 +1,179 @@
+import os
+import glob
+import csv
+from typing import Tuple, List, Dict
+
+import cv2
+import numpy as np
+import torch
+from torch.utils.data import Dataset
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+
+from utils.custom_augmentations import (
+    AddDustParticles,
+    AddLaserPointer,
+    AddOpticalFiber,
+    AddStructuralDefects,
+    CustomDefectsAugmentation,
+)
+
+
+class TTTSNetSemiDataset(Dataset):
+    """
+    半监督数据集：混合有标注数据（FetReg）和伪标签数据（无标注视频）
+    """
+
+    def __init__(
+        self,
+        labeled_data_paths: List[str],
+        pseudo_data_path: str,
+        mode: str = "train",
+        img_size: int = 448,
+        binary: bool = True,
+        pseudo_manifest_path: str = "",
+        pseudo_min_area_ratio: float = 0.02,
+        pseudo_max_area_ratio: float = 0.30,
+        pseudo_min_mean_confidence: float = 0.85,
+        pseudo_min_topk_confidence: float = 0.90,
+    ):
+        assert mode in ["train", "valid"]
+        self.mode = mode
+        self.img_size = img_size
+        self.binary = binary
+        self.pseudo_min_area_ratio = pseudo_min_area_ratio
+        self.pseudo_max_area_ratio = pseudo_max_area_ratio
+        self.pseudo_min_mean_confidence = pseudo_min_mean_confidence
+        self.pseudo_min_topk_confidence = pseudo_min_topk_confidence
+        self.pseudo_manifest = self._load_pseudo_manifest(pseudo_manifest_path)
+
+        # 加载有标注数据
+        self.labeled_samples = []
+        for data_path in labeled_data_paths:
+            images = sorted(glob.glob(os.path.join(data_path, "*/images/*.png"), recursive=True))
+            labels = sorted(glob.glob(os.path.join(data_path, "*/labels/*.png"), recursive=True))
+            assert len(images) == len(labels)
+            for img_path, lbl_path in zip(images, labels):
+                self.labeled_samples.append((img_path, lbl_path, 1.0))  # weight=1.0 for labeled
+
+        # 加载伪标签数据
+        self.pseudo_samples = []
+        pseudo_images = sorted(glob.glob(os.path.join(pseudo_data_path, "**/*.jpg"), recursive=True))
+        for img_path in pseudo_images:
+            # 对应的伪标签路径
+            pseudo_lbl_path = img_path.replace("/images/", "/pseudo_labels/").replace(".jpg", ".png")
+            if os.path.exists(pseudo_lbl_path) and self._is_valid_pseudo_sample(img_path, pseudo_lbl_path):
+                self.pseudo_samples.append((img_path, pseudo_lbl_path, 0.5))  # weight=0.5 for pseudo
+
+        self.samples = self.labeled_samples + self.pseudo_samples
+
+        self.train_transform = A.Compose([
+            A.Resize(self.img_size, self.img_size),
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),
+            A.OneOf([
+                A.Blur(blur_limit=(3, 7), p=0.25),
+                A.MotionBlur(blur_limit=(3, 7), p=0.45)
+            ], p=0.2),
+            CustomDefectsAugmentation(p=0.5),
+            A.ShiftScaleRotate(
+                border_mode=cv2.BORDER_CONSTANT,
+                shift_limit=0.025,
+                rotate_limit=40,
+                scale_limit=0.2,
+                p=0.2,
+            ),
+            A.ColorJitter(saturation=0.2, hue=0.15, p=0.3),
+            A.RandomBrightnessContrast(
+                brightness_limit=(-0.15, 0.05), contrast_limit=(-0.1, 0.2), p=0.3),
+            A.CLAHE(clip_limit=1.0, tile_grid_size=(16, 16), p=0.15),
+            A.Normalize(),
+            ToTensorV2(),
+        ])
+
+        self.valid_transform = A.Compose([
+            A.Resize(self.img_size, self.img_size),
+            A.Normalize(),
+            ToTensorV2(),
+        ])
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def _load_label(self, label_path: str) -> np.ndarray:
+        label = cv2.imread(label_path, cv2.IMREAD_GRAYSCALE)
+        if label is None:
+            raise ValueError(f"无法读取标签: {label_path}")
+        if self.binary:
+            label = np.where(label > 1, 0, label)
+            label = (label > 0).astype(np.uint8)
+        return label
+
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, float]:
+        img_path, lbl_path, weight = self.samples[idx]
+
+        image = cv2.imread(img_path)
+        if image is None:
+            raise ValueError(f"无法读取图像: {img_path}")
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        label = self._load_label(lbl_path)
+
+        # 伪标签可能与原图尺寸不同，先对齐到原图尺寸再进入 transform
+        if label.shape[:2] != image.shape[:2]:
+            label = cv2.resize(
+                label,
+                (image.shape[1], image.shape[0]),
+                interpolation=cv2.INTER_NEAREST,
+            )
+
+        if self.mode == "train":
+            transformed = self.train_transform(image=image, mask=label)
+        else:
+            transformed = self.valid_transform(image=image, mask=label)
+
+        image_tensor = transformed["image"]
+        mask_tensor = transformed["mask"].unsqueeze(0).float()
+
+        return image_tensor, mask_tensor, weight
+
+    def get_stats(self) -> dict:
+        return {
+            "labeled": len(self.labeled_samples),
+            "pseudo": len(self.pseudo_samples),
+            "total": len(self.samples),
+        }
+
+    def _load_pseudo_manifest(self, manifest_path: str) -> Dict[str, Dict[str, float]]:
+        if not manifest_path or not os.path.exists(manifest_path):
+            return {}
+
+        manifest = {}
+        with open(manifest_path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                image_path = row.get("image_path", "")
+                if not image_path:
+                    continue
+                manifest[image_path] = {
+                    "mean_confidence": float(row.get("mean_confidence", 0.0)),
+                    "topk_mean_confidence": float(row.get("topk_mean_confidence", 0.0)),
+                    "area_ratio": float(row.get("area_ratio", 0.0)),
+                }
+        return manifest
+
+    def _is_valid_pseudo_sample(self, img_path: str, label_path: str) -> bool:
+        if img_path in self.pseudo_manifest:
+            stats = self.pseudo_manifest[img_path]
+            if stats["mean_confidence"] < self.pseudo_min_mean_confidence:
+                return False
+            if stats["topk_mean_confidence"] < self.pseudo_min_topk_confidence:
+                return False
+            area_ratio = stats["area_ratio"]
+        else:
+            label = cv2.imread(label_path, cv2.IMREAD_GRAYSCALE)
+            if label is None:
+                return False
+            area_ratio = float((label > 0).mean())
+
+        return self.pseudo_min_area_ratio <= area_ratio <= self.pseudo_max_area_ratio

@@ -1,0 +1,64 @@
+{
+  "model_config": {
+    "name": "SAM",
+    "model_type": "vit_b",
+    "checkpoint": "/autodl-fs/data/masquer.li/model/sam_vit_b_01ec64.pth",
+    "freeze_fv": false
+  },
+  "training_config": {
+    "num_epochs": 100,
+    "batch_size": 2,
+    "lr": 1e-4,
+    "weight_decay": 0.01,
+    "scheduler": "cosine",
+    "scheduler_t_max": 100,
+    "eta_min": 1e-6,
+    "warmup_epochs": 5,
+    "early_stop_patience": 20,
+    "num_workers": 8,
+    "use_amp": 1,
+    "gradient_accumulation_steps": 1,
+    "seed": null,
+    "iou_loss_weight": 0.1,
+    "disable_augmentation": false
+  },
+  "prompt_config": {
+    "box_prompt": 0,
+    "prompt_points_num": 20,
+    "points_sample_mode": "RANDOM",
+    "prompt_with_gt": 1,
+    "use_learnable_prompts": 0,
+    "forward_without_prompt": 0,
+    "prompt_noise_std": 0.0,
+    "prompt_error_rate": 0.0
+  },
+  "dataset_config": {
+    "img_size": 1024,
+    "binary": true,
+    "train_paths": [
+      "/autodl-fs/data/masquer.li/FetReg2021_dataset/FetReg2021_dataset/Train/Train_FetReg2021_Task1_Segmentation/"
+    ],
+    "val_paths": [
+      "/autodl-fs/data/masquer.li/FetReg2021_dataset/FetReg2021_dataset/Test/Test_FetReg2021_Task1_Segmentation/"
+    ]
+  },
+  "augmentation_config": {
+    "horizontal_flip_p": 0.5,
+    "vertical_flip_p": 0.5,
+    "blur_motionblur_p": 0.2,
+    "custom_defects_p": 0.5,
+    "shift_scale_rotate_p": 0.2,
+    "color_jitter_p": 0.3,
+    "random_brightness_contrast_p": 0.3,
+    "clahe_p": 0.15
+  },
+  "runtime_config": {
+    "run_name": "A0_2_5_random_points_aligned",
+    "work_dir": "experiments",
+    "save_frequency": 10,
+    "validation_frequency": 5,
+    "num_visualize": 5,
+    "debug": 0,
+    "seed": null
+  }
+}
