@@ -1,0 +1,55 @@
+{
+  "model_config": {
+    "name": "TTTSNetViT",
+    "classes": 2,
+    "num_features": 64,
+    "block_1": 3,
+    "block_2": 8,
+    "sam_checkpoint": "/autodl-fs/data/masquer.li/model/sam_vit_b_01ec64.pth",
+    "freeze_vit": false
+  },
+  "training_config": {
+    "num_epochs": 100,
+    "batch_size": 4,
+    "lr": 1e-4,
+    "weight_decay": 0.01,
+    "scheduler": "cosine",
+    "scheduler_t_max": 100,
+    "eta_min": 1e-7,
+    "num_workers": 4,
+    "use_amp": 1,
+    "gradient_accumulation_steps": 1,
+    "seed": 42,
+    "loss_dice_weight": 1.0,
+    "loss_bce_weight": 1.0
+  },
+  "dataset_config": {
+    "img_size": 448,
+    "crop_size": 256,
+    "binary": true,
+    "train_paths": [
+      "/autodl-fs/data/masquer.li/FetReg2021_dataset/FetReg2021_dataset/Train/Train_FetReg2021_Task1_Segmentation/"
+    ],
+    "val_paths": [
+      "/autodl-fs/data/masquer.li/FetReg2021_dataset/FetReg2021_dataset/Test/Test_FetReg2021_Task1_Segmentation/"
+    ]
+  },
+  "augmentation_config": {
+    "horizontal_flip_p": 0.5,
+    "vertical_flip_p": 0.5,
+    "blur_motionblur_p": 0.2,
+    "custom_defects_p": 0.5,
+    "shift_scale_rotate_p": 0.2,
+    "color_jitter_p": 0.3,
+    "random_brightness_contrast_p": 0.3,
+    "clahe_p": 0.15
+  },
+  "runtime_config": {
+    "run_name": "tttsnet_vit_backbone",
+    "work_dir": "experiments",
+    "save_frequency": 10,
+    "validation_frequency": 1,
+    "num_visualize": 5,
+    "debug": 0
+  }
+}

@@ -12,8 +12,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RUN_NAME="tttsnet_semi_${TIMESTAMP}"
 EXP_DIR="$PROJECT_DIR/experiments/$RUN_NAME"
 
-mkdir -p "$EXP_DIR"
-cp "$CONFIG_PATH" "$EXP_DIR/config.json"
+mkdir -p "$PROJECT_DIR/experiments"
 
 echo "========================================"
 echo "TTTSNet Semi-Supervised"
@@ -23,7 +22,6 @@ echo "========================================"
 
 python3 "$PROJECT_DIR/tools/train_semi.py" \
   --config "$CONFIG_PATH" \
-  --work_dir "$EXP_DIR" \
-  2>&1 | tee "$EXP_DIR/training.log"
+  --work_dir "$PROJECT_DIR/experiments"
 
 echo "Training log saved to: $EXP_DIR/training.log"

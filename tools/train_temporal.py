@@ -45,6 +45,25 @@ def set_seed(seed: int):
     torch.backends.cudnn.benchmark = False
 
 
+class TeeLogger:
+    """同时将输出写入文件和控制台的日志重定向器。"""
+
+    def __init__(self, filepath: Path, mode: str = "a"):
+        self.terminal = sys.stdout
+        self.log = open(filepath, mode, buffering=1, encoding="utf-8")
+
+    def write(self, message: str):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+    def close(self):
+        self.log.close()
+
+
 def load_config(config_path: str) -> Dict[str, Any]:
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -364,6 +383,11 @@ def main():
         exp_dir = Path(runtime_cfg.get("work_dir", "experiments")) / run_name
     exp_dir.mkdir(parents=True, exist_ok=True)
 
+    # 将 stdout/stderr 同时重定向到实验目录的 training.log
+    tee = TeeLogger(exp_dir / "training.log", mode="a")
+    sys.stdout = tee
+    sys.stderr = tee
+
     with open(exp_dir / "config.json", "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
 
@@ -437,6 +461,12 @@ def main():
                     model, optimizer, scheduler, epoch, epoch_metrics,
                     exp_dir / "checkpoints" / f"model_epoch_{epoch:03d}.pth"
                 )
+                # 只保留最新的 N 个 epoch checkpoint，释放磁盘
+                keep_last_n = runtime_cfg.get("keep_last_n_checkpoints", 1)
+                checkpoint_dir = exp_dir / "checkpoints"
+                epoch_ckpts = sorted(checkpoint_dir.glob("model_epoch_*.pth"))
+                for old_ckpt in epoch_ckpts[:-keep_last_n]:
+                    old_ckpt.unlink()
 
             if val_metrics["val/miou"] > best_miou:
                 best_miou = val_metrics["val/miou"]
@@ -459,6 +489,12 @@ def main():
 
     print(f"\nTraining completed. Best val mIoU: {best_miou:.4f}")
     print(f"Experiment directory: {exp_dir}")
+
+    # 恢复 stdout/stderr
+    if 'tee' in locals():
+        sys.stdout = tee.terminal
+        sys.stderr = tee.terminal
+        tee.close()
 
 
 if __name__ == "__main__":

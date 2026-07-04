@@ -1,6 +1,7 @@
 import os
 import glob
-from typing import Tuple, List
+import csv
+from typing import Tuple, List, Dict
 
 import cv2
 import numpy as np
@@ -30,11 +31,21 @@ class TTTSNetSemiDataset(Dataset):
         mode: str = "train",
         img_size: int = 448,
         binary: bool = True,
+        pseudo_manifest_path: str = "",
+        pseudo_min_area_ratio: float = 0.02,
+        pseudo_max_area_ratio: float = 0.30,
+        pseudo_min_mean_confidence: float = 0.85,
+        pseudo_min_topk_confidence: float = 0.90,
     ):
         assert mode in ["train", "valid"]
         self.mode = mode
         self.img_size = img_size
         self.binary = binary
+        self.pseudo_min_area_ratio = pseudo_min_area_ratio
+        self.pseudo_max_area_ratio = pseudo_max_area_ratio
+        self.pseudo_min_mean_confidence = pseudo_min_mean_confidence
+        self.pseudo_min_topk_confidence = pseudo_min_topk_confidence
+        self.pseudo_manifest = self._load_pseudo_manifest(pseudo_manifest_path)
 
         # 加载有标注数据
         self.labeled_samples = []
@@ -51,7 +62,7 @@ class TTTSNetSemiDataset(Dataset):
         for img_path in pseudo_images:
             # 对应的伪标签路径
             pseudo_lbl_path = img_path.replace("/images/", "/pseudo_labels/").replace(".jpg", ".png")
-            if os.path.exists(pseudo_lbl_path):
+            if os.path.exists(pseudo_lbl_path) and self._is_valid_pseudo_sample(img_path, pseudo_lbl_path):
                 self.pseudo_samples.append((img_path, pseudo_lbl_path, 0.5))  # weight=0.5 for pseudo
 
         self.samples = self.labeled_samples + self.pseudo_samples
@@ -132,3 +143,37 @@ class TTTSNetSemiDataset(Dataset):
             "pseudo": len(self.pseudo_samples),
             "total": len(self.samples),
         }
+
+    def _load_pseudo_manifest(self, manifest_path: str) -> Dict[str, Dict[str, float]]:
+        if not manifest_path or not os.path.exists(manifest_path):
+            return {}
+
+        manifest = {}
+        with open(manifest_path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                image_path = row.get("image_path", "")
+                if not image_path:
+                    continue
+                manifest[image_path] = {
+                    "mean_confidence": float(row.get("mean_confidence", 0.0)),
+                    "topk_mean_confidence": float(row.get("topk_mean_confidence", 0.0)),
+                    "area_ratio": float(row.get("area_ratio", 0.0)),
+                }
+        return manifest
+
+    def _is_valid_pseudo_sample(self, img_path: str, label_path: str) -> bool:
+        if img_path in self.pseudo_manifest:
+            stats = self.pseudo_manifest[img_path]
+            if stats["mean_confidence"] < self.pseudo_min_mean_confidence:
+                return False
+            if stats["topk_mean_confidence"] < self.pseudo_min_topk_confidence:
+                return False
+            area_ratio = stats["area_ratio"]
+        else:
+            label = cv2.imread(label_path, cv2.IMREAD_GRAYSCALE)
+            if label is None:
+                return False
+            area_ratio = float((label > 0).mean())
+
+        return self.pseudo_min_area_ratio <= area_ratio <= self.pseudo_max_area_ratio

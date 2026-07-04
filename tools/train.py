@@ -29,8 +29,10 @@ sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from models.TTTSNet import TTTSNet
+from models.tttsnet_vit import TTTSNetViT
+from models.tttsnet_transformer_decoder import TTTSNetTransformerDecoder, TTTSNetViTTransformerDecoder
 from dataset_tttsnet import TTTSNetDataset
-from utils.losses import DiceLoss, AsymmetricUnifiedFocalLoss
+from utils.losses import DiceLoss, AsymmetricUnifiedFocalLoss, SoftCLDiceLoss
 from utils.metrics_binary import calc_miou_and_dice, calc_pixel_accuracy
 from utils.tracker import ExperimentTracker
 
@@ -43,6 +45,25 @@ def set_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+
+class TeeLogger:
+    """同时将输出写入文件和控制台的日志重定向器。"""
+
+    def __init__(self, filepath: Path, mode: str = "a"):
+        self.terminal = sys.stdout
+        self.log = open(filepath, mode, buffering=1, encoding="utf-8")
+
+    def write(self, message: str):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+    def close(self):
+        self.log.close()
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -109,25 +130,88 @@ def create_dataloaders(cfg: Dict[str, Any], aug_cfg: Dict[str, float]):
 
 
 def create_model(cfg: Dict[str, Any], device: torch.device):
-    """创建 TTTSNet 模型"""
+    """创建 TTTSNet 或 TTTSNet-ViT 模型"""
     model_cfg = cfg["model_config"]
-    model = TTTSNet(
-        classes=model_cfg.get("classes", 2),
-        block_1=model_cfg.get("block_1", 3),
-        block_2=model_cfg.get("block_2", 8),
-        num_features=model_cfg.get("num_features", 64),
-    )
+    model_name = model_cfg.get("name", "TTTSNet")
+
+    if model_name == "TTTSNetViT":
+        model = TTTSNetViT(
+            classes=model_cfg.get("classes", 2),
+            block_1=model_cfg.get("block_1", 3),
+            block_2=model_cfg.get("block_2", 8),
+            num_features=model_cfg.get("num_features", 64),
+            sam_checkpoint=model_cfg.get("sam_checkpoint", "/autodl-fs/data/masquer.li/model/sam_vit_b_01ec64.pth"),
+            freeze_vit=model_cfg.get("freeze_vit", False),
+        )
+    elif model_name == "TTTSNetTransformerDecoder":
+        model = TTTSNetTransformerDecoder(
+            classes=model_cfg.get("classes", 2),
+            block_1=model_cfg.get("block_1", 3),
+            block_2=model_cfg.get("block_2", 8),
+            num_features=model_cfg.get("num_features", 64),
+            transformer_dim=model_cfg.get("transformer_dim", 128),
+            transformer_heads=model_cfg.get("transformer_heads", 4),
+            transformer_pooled_size=model_cfg.get("transformer_pooled_size", 28),
+            transformer_num_layers=model_cfg.get("transformer_num_layers", 1),
+            transformer_use_pos_embed=model_cfg.get("transformer_use_pos_embed", True),
+        )
+    elif model_name == "TTTSNetViTTransformerDecoder":
+        model = TTTSNetViTTransformerDecoder(
+            classes=model_cfg.get("classes", 2),
+            block_1=model_cfg.get("block_1", 3),
+            block_2=model_cfg.get("block_2", 8),
+            num_features=model_cfg.get("num_features", 64),
+            sam_checkpoint=model_cfg.get("sam_checkpoint", "/autodl-fs/data/masquer.li/model/sam_vit_b_01ec64.pth"),
+            freeze_vit=model_cfg.get("freeze_vit", False),
+            transformer_dim=model_cfg.get("transformer_dim", 128),
+            transformer_heads=model_cfg.get("transformer_heads", 4),
+            transformer_pooled_size=model_cfg.get("transformer_pooled_size", 28),
+            transformer_num_layers=model_cfg.get("transformer_num_layers", 1),
+            transformer_use_pos_embed=model_cfg.get("transformer_use_pos_embed", True),
+        )
+    else:
+        model = TTTSNet(
+            classes=model_cfg.get("classes", 2),
+            block_1=model_cfg.get("block_1", 3),
+            block_2=model_cfg.get("block_2", 8),
+            num_features=model_cfg.get("num_features", 64),
+        )
     model = model.to(device)
     return model
 
 
 def create_optimizer(model: nn.Module, cfg: Dict[str, Any]):
-    """创建 AdamW 优化器"""
+    """创建 AdamW 优化器，支持按参数组设置不同学习率"""
     train_cfg = cfg["training_config"]
     lr = train_cfg["lr"]
     weight_decay = train_cfg.get("weight_decay", 0.01)
 
-    optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    # 支持 backbone 与 decoder 分层学习率，例如 ViT encoder 使用更小 lr
+    backbone_lr_multiplier = train_cfg.get("backbone_lr_multiplier", 1.0)
+    backbone_param_pattern = train_cfg.get("backbone_param_pattern", "")
+
+    if backbone_lr_multiplier != 1.0 and backbone_param_pattern:
+        backbone_params = []
+        other_params = []
+        for name, param in model.named_parameters():
+            if not param.requires_grad:
+                continue
+            if backbone_param_pattern in name:
+                backbone_params.append(param)
+            else:
+                other_params.append(param)
+        param_groups = [
+            {"params": backbone_params, "lr": lr * backbone_lr_multiplier},
+            {"params": other_params, "lr": lr},
+        ]
+        print(
+            f"[Optimizer] backbone params ({backbone_param_pattern}): "
+            f"{len(backbone_params)} groups with lr={lr * backbone_lr_multiplier}; "
+            f"other params: {len(other_params)} groups with lr={lr}"
+        )
+        optimizer = AdamW(param_groups, lr=lr, weight_decay=weight_decay)
+    else:
+        optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     return optimizer
 
 
@@ -153,6 +237,7 @@ def create_losses(cfg: Dict[str, Any], device: torch.device):
     loss_type = train_cfg.get("loss_type", "default")
     dice_weight = train_cfg.get("loss_dice_weight", 1.0)
     bce_weight = train_cfg.get("loss_bce_weight", 1.0)
+    cldice_weight = train_cfg.get("loss_cldice_weight", 0.0)
 
     if loss_type == "aufl":
         # AsymmetricUnifiedFocalLoss，适合类别不平衡的细血管分割
@@ -162,18 +247,26 @@ def create_losses(cfg: Dict[str, Any], device: torch.device):
             gamma=train_cfg.get("aufl_gamma", 0.2),
             n_classes=2,
         ).to(device)
-        return auft_loss, None, None, dice_weight, bce_weight
+        cldice_loss = SoftCLDiceLoss(
+            iterations=train_cfg.get("cldice_iterations", 10)
+        ).to(device) if cldice_weight > 0 else None
+        return auft_loss, None, None, cldice_loss, dice_weight, bce_weight, cldice_weight
 
     dice_loss = DiceLoss(mode="binary", from_logits=True).to(device)
     bce_loss = nn.BCEWithLogitsLoss().to(device)
     ce_loss = nn.CrossEntropyLoss().to(device)
 
-    return dice_loss, bce_loss, ce_loss, dice_weight, bce_weight
+    cldice_loss = SoftCLDiceLoss(
+        iterations=train_cfg.get("cldice_iterations", 10)
+    ).to(device) if cldice_weight > 0 else None
+
+    return dice_loss, bce_loss, ce_loss, cldice_loss, dice_weight, bce_weight, cldice_weight
 
 
 def compute_loss(pred: torch.Tensor, target: torch.Tensor,
-                 dice_loss, bce_loss, ce_loss,
-                 dice_weight: float, bce_weight: float, loss_type: str = "default"):
+                 dice_loss, bce_loss, ce_loss, cldice_loss,
+                 dice_weight: float, bce_weight: float, cldice_weight: float,
+                 loss_type: str = "default"):
     """
     pred: [B, 2, H, W] logits (binary class: background + vessel)
     target: [B, 1, H, W] or [B, H, W] with values 0/1
@@ -184,10 +277,16 @@ def compute_loss(pred: torch.Tensor, target: torch.Tensor,
     if loss_type == "aufl" and dice_loss is not None:
         # AUFL 内部自己做激活和 one-hot
         loss = dice_loss(pred, target.long())
+        loss_cldice = torch.tensor(0.0, device=pred.device)
+        if cldice_loss is not None and cldice_weight > 0:
+            vessel_prob = torch.softmax(pred, dim=1)[:, 1:2, :, :]
+            loss_cldice = cldice_loss(vessel_prob, target.unsqueeze(1).float())
+            loss = loss + cldice_weight * loss_cldice
         return loss, {
             "loss_dice": 0.0,
             "loss_bce": 0.0,
             "loss_ce": loss.item(),
+            "loss_cldice": loss_cldice.item(),
         }
 
     # 提取 vessel logit [B, 1, H, W]
@@ -201,18 +300,29 @@ def compute_loss(pred: torch.Tensor, target: torch.Tensor,
 
     # 可选：CrossEntropy loss 作为正则
     loss_ce = ce_loss(pred, target.long())
+    loss_cldice = torch.tensor(0.0, device=pred.device)
+    if cldice_loss is not None and cldice_weight > 0:
+        vessel_prob = torch.sigmoid(vessel_logit)
+        loss_cldice = cldice_loss(vessel_prob, target.unsqueeze(1).float())
 
-    total_loss = dice_weight * loss_dice + bce_weight * loss_bce + 0.5 * loss_ce
+    total_loss = (
+        dice_weight * loss_dice
+        + bce_weight * loss_bce
+        + 0.5 * loss_ce
+        + cldice_weight * loss_cldice
+    )
 
     return total_loss, {
         "loss_dice": loss_dice.item(),
         "loss_bce": loss_bce.item(),
         "loss_ce": loss_ce.item(),
+        "loss_cldice": loss_cldice.item(),
     }
 
 
 def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim.Optimizer,
-                    dice_loss, bce_loss, ce_loss, dice_weight: float, bce_weight: float,
+                    dice_loss, bce_loss, ce_loss, cldice_loss,
+                    dice_weight: float, bce_weight: float, cldice_weight: float,
                     device: torch.device, scaler: GradScaler, epoch: int, tracker: ExperimentTracker,
                     grad_accum: int = 1, use_amp: bool = True, loss_type: str = "default"):
     """训练一个 epoch"""
@@ -221,6 +331,7 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim
     total_dice = 0.0
     total_bce = 0.0
     total_ce = 0.0
+    total_cldice = 0.0
     num_batches = 0
 
     pbar = tqdm(loader, desc=f"Train Epoch {epoch}")
@@ -231,7 +342,8 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim
         with autocast(enabled=use_amp):
             outputs = model(images)
             loss, loss_dict = compute_loss(
-                outputs, masks, dice_loss, bce_loss, ce_loss, dice_weight, bce_weight, loss_type=loss_type
+                outputs, masks, dice_loss, bce_loss, ce_loss, cldice_loss,
+                dice_weight, bce_weight, cldice_weight, loss_type=loss_type
             )
             loss = loss / grad_accum
 
@@ -248,6 +360,7 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim
         total_dice += loss_dict["loss_dice"]
         total_bce += loss_dict["loss_bce"]
         total_ce += loss_dict["loss_ce"]
+        total_cldice += loss_dict["loss_cldice"]
         num_batches += 1
 
         # 记录每步 loss
@@ -257,30 +370,35 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim
             "train/loss_dice": loss_dict["loss_dice"],
             "train/loss_bce": loss_dict["loss_bce"],
             "train/loss_ce": loss_dict["loss_ce"],
+            "train/loss_cldice": loss_dict["loss_cldice"],
         })
 
         pbar.set_postfix({
             "loss": f"{loss.item() * grad_accum:.4f}",
             "dice": f"{loss_dict['loss_dice']:.4f}",
             "bce": f"{loss_dict['loss_bce']:.4f}",
+            "cldice": f"{loss_dict['loss_cldice']:.4f}",
         })
 
     avg_loss = total_loss / max(num_batches, 1)
     avg_dice = total_dice / max(num_batches, 1)
     avg_bce = total_bce / max(num_batches, 1)
     avg_ce = total_ce / max(num_batches, 1)
+    avg_cldice = total_cldice / max(num_batches, 1)
 
     return {
         "train/loss": avg_loss,
         "train/loss_dice": avg_dice,
         "train/loss_bce": avg_bce,
         "train/loss_ce": avg_ce,
+        "train/loss_cldice": avg_cldice,
     }
 
 
 @torch.no_grad()
 def validate(model: nn.Module, loader: DataLoader, device: torch.device,
-             dice_loss, bce_loss, ce_loss, dice_weight: float, bce_weight: float,
+             dice_loss, bce_loss, ce_loss, cldice_loss,
+             dice_weight: float, bce_weight: float, cldice_weight: float,
              use_amp: bool = True, loss_type: str = "default"):
     """验证一个 epoch"""
     model.eval()
@@ -297,7 +415,10 @@ def validate(model: nn.Module, loader: DataLoader, device: torch.device,
 
         with autocast(enabled=use_amp):
             outputs = model(images)
-            loss, _ = compute_loss(outputs, masks, dice_loss, bce_loss, ce_loss, dice_weight, bce_weight, loss_type=loss_type)
+            loss, _ = compute_loss(
+                outputs, masks, dice_loss, bce_loss, ce_loss, cldice_loss,
+                dice_weight, bce_weight, cldice_weight, loss_type=loss_type
+            )
 
         # 计算指标：取 vessel 概率
         vessel_prob = torch.softmax(outputs, dim=1)[:, 1:2, :, :]
@@ -349,6 +470,7 @@ def main():
     parser.add_argument("--config", type=str, default="configs/config.json", help="Path to config JSON")
     parser.add_argument("--work_dir", type=str, default=None, help="Experiment output directory")
     parser.add_argument("--num_epochs", type=int, default=None, help="Override num_epochs")
+    parser.add_argument("--seed", type=int, default=None, help="Override random seed")
     parser.add_argument("--debug", type=int, default=None, help="Override debug mode (1=debug)")
     args = parser.parse_args()
 
@@ -358,10 +480,10 @@ def main():
 
     # 命令行覆盖
     num_epochs = args.num_epochs if args.num_epochs is not None else train_cfg["num_epochs"]
+    seed = args.seed if args.seed is not None else train_cfg.get("seed", 42)
     debug = args.debug if args.debug is not None else runtime_cfg.get("debug", 0)
 
     # 设置随机种子
-    seed = train_cfg.get("seed", 42)
     set_seed(seed)
 
     # 创建实验目录
@@ -373,9 +495,28 @@ def main():
         exp_dir = Path(runtime_cfg.get("work_dir", "experiments")) / run_name
     exp_dir.mkdir(parents=True, exist_ok=True)
 
+    # 将 stdout/stderr 同时重定向到实验目录的 training.log
+    tee = TeeLogger(exp_dir / "training.log", mode="a")
+    sys.stdout = tee
+    sys.stderr = tee
+
     # 保存配置副本
     with open(exp_dir / "config.json", "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+    # 保存版本号文件（如配置中提供）
+    version = runtime_cfg.get("version")
+    exp_id = runtime_cfg.get("exp_id")
+    if version or exp_id:
+        version_file = exp_dir / "VERSION"
+        with open(version_file, "w", encoding="utf-8") as f:
+            if exp_id:
+                f.write(f"EXP-ID: {exp_id}\n")
+            if version:
+                f.write(f"Model-Version: {version}\n")
+            f.write(f"Seed: {seed}\n")
+            f.write("Status: in progress\n")
+            f.write(f"Description: {run_name}\n")
 
     # 初始化实验追踪
     tracker = ExperimentTracker(
@@ -404,7 +545,7 @@ def main():
     # 优化器、调度器、损失
     optimizer = create_optimizer(model, cfg)
     scheduler = create_scheduler(optimizer, cfg)
-    dice_loss, bce_loss, ce_loss, dice_weight, bce_weight = create_losses(cfg, device)
+    dice_loss, bce_loss, ce_loss, cldice_loss, dice_weight, bce_weight, cldice_weight = create_losses(cfg, device)
     loss_type = train_cfg.get("loss_type", "default")
 
     # AMP
@@ -424,7 +565,7 @@ def main():
 
         train_metrics = train_one_epoch(
             model, train_loader, optimizer,
-            dice_loss, bce_loss, ce_loss, dice_weight, bce_weight,
+            dice_loss, bce_loss, ce_loss, cldice_loss, dice_weight, bce_weight, cldice_weight,
             device, scaler, epoch, tracker,
             grad_accum=train_cfg.get("gradient_accumulation_steps", 1),
             use_amp=use_amp, loss_type=loss_type,
@@ -432,7 +573,7 @@ def main():
 
         val_metrics = validate(
             model, val_loader, device,
-            dice_loss, bce_loss, ce_loss, dice_weight, bce_weight,
+            dice_loss, bce_loss, ce_loss, cldice_loss, dice_weight, bce_weight, cldice_weight,
             use_amp=use_amp, loss_type=loss_type,
         )
 
@@ -456,18 +597,24 @@ def main():
         # 保存 checkpoint
         if debug == 0:
             save_freq = runtime_cfg.get("save_frequency", 10)
+            checkpoint_dir = exp_dir / "checkpoints"
             if epoch % save_freq == 0 or epoch == num_epochs:
                 save_checkpoint(
                     model, optimizer, scheduler, epoch, epoch_metrics,
-                    exp_dir / "checkpoints" / f"model_epoch_{epoch:03d}.pth"
+                    checkpoint_dir / f"model_epoch_{epoch:03d}.pth"
                 )
+                # 只保留最新的一个 epoch checkpoint，其余视为无效中间状态并删除以释放磁盘
+                keep_last_n = runtime_cfg.get("keep_last_n_checkpoints", 1)
+                epoch_ckpts = sorted(checkpoint_dir.glob("model_epoch_*.pth"))
+                for old_ckpt in epoch_ckpts[:-keep_last_n]:
+                    old_ckpt.unlink()
 
             if val_metrics["val/miou"] > best_miou:
                 best_miou = val_metrics["val/miou"]
                 best_epoch = epoch
                 save_checkpoint(
                     model, optimizer, scheduler, epoch, epoch_metrics,
-                    exp_dir / "checkpoints" / "best_model.pth",
+                    checkpoint_dir / "best_model.pth",
                     is_best=True
                 )
                 print(f"  *** New best mIoU: {best_miou:.4f} at epoch {best_epoch}")
@@ -486,6 +633,12 @@ def main():
 
     print(f"\nTraining completed. Best val mIoU: {best_miou:.4f} at epoch {best_epoch}")
     print(f"Experiment directory: {exp_dir}")
+
+    # 恢复 stdout/stderr
+    if 'tee' in locals():
+        sys.stdout = tee.terminal
+        sys.stderr = tee.terminal
+        tee.close()
 
 
 if __name__ == "__main__":

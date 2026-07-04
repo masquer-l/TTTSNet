@@ -29,9 +29,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from models.TTTSNet import TTTSNet
+from models.tttsnet_vit import TTTSNetViT
+from models.tttsnet_transformer_decoder import TTTSNetTransformerDecoder, TTTSNetViTTransformerDecoder
 from dataset_tttsnet import TTTSNetDataset
 from dataset_semi import TTTSNetSemiDataset
-from utils.losses import DiceLoss
+from utils.losses import DiceLoss, SoftCLDiceLoss
 from utils.metrics_binary import calc_miou_and_dice, calc_pixel_accuracy
 from utils.tracker import ExperimentTracker
 
@@ -43,6 +45,25 @@ def set_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+
+class TeeLogger:
+    """同时将输出写入文件和控制台的日志重定向器。"""
+
+    def __init__(self, filepath: Path, mode: str = "a"):
+        self.terminal = sys.stdout
+        self.log = open(filepath, mode, buffering=1, encoding="utf-8")
+
+    def write(self, message: str):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+    def close(self):
+        self.log.close()
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -72,6 +93,11 @@ def create_dataloaders(cfg: Dict[str, Any]):
         mode="train",
         img_size=ds_cfg.get("img_size", 448),
         binary=ds_cfg.get("binary", True),
+        pseudo_manifest_path=ds_cfg.get("pseudo_manifest_path", ""),
+        pseudo_min_area_ratio=ds_cfg.get("pseudo_min_area_ratio", 0.02),
+        pseudo_max_area_ratio=ds_cfg.get("pseudo_max_area_ratio", 0.30),
+        pseudo_min_mean_confidence=ds_cfg.get("pseudo_min_mean_confidence", 0.85),
+        pseudo_min_topk_confidence=ds_cfg.get("pseudo_min_topk_confidence", 0.90),
     )
 
     if len(val_paths) == 1:
@@ -112,12 +138,45 @@ def create_dataloaders(cfg: Dict[str, Any]):
 
 def create_model(cfg: Dict[str, Any], device: torch.device):
     model_cfg = cfg["model_config"]
-    model = TTTSNet(
-        classes=model_cfg.get("classes", 2),
-        block_1=model_cfg.get("block_1", 3),
-        block_2=model_cfg.get("block_2", 8),
-        num_features=model_cfg.get("num_features", 64),
-    )
+    model_name = model_cfg.get("name", "TTTSNet")
+    if model_name == "TTTSNetViT":
+        model = TTTSNetViT(
+            classes=model_cfg.get("classes", 2),
+            block_1=model_cfg.get("block_1", 3),
+            block_2=model_cfg.get("block_2", 8),
+            num_features=model_cfg.get("num_features", 64),
+            sam_checkpoint=model_cfg.get("sam_checkpoint", "/autodl-fs/data/masquer.li/model/sam_vit_b_01ec64.pth"),
+            freeze_vit=model_cfg.get("freeze_vit", False),
+        )
+    elif model_name == "TTTSNetTransformerDecoder":
+        model = TTTSNetTransformerDecoder(
+            classes=model_cfg.get("classes", 2),
+            block_1=model_cfg.get("block_1", 3),
+            block_2=model_cfg.get("block_2", 8),
+            num_features=model_cfg.get("num_features", 64),
+            transformer_dim=model_cfg.get("transformer_dim", 128),
+            transformer_heads=model_cfg.get("transformer_heads", 4),
+            transformer_pooled_size=model_cfg.get("transformer_pooled_size", 28),
+        )
+    elif model_name == "TTTSNetViTTransformerDecoder":
+        model = TTTSNetViTTransformerDecoder(
+            classes=model_cfg.get("classes", 2),
+            block_1=model_cfg.get("block_1", 3),
+            block_2=model_cfg.get("block_2", 8),
+            num_features=model_cfg.get("num_features", 64),
+            sam_checkpoint=model_cfg.get("sam_checkpoint", "/autodl-fs/data/masquer.li/model/sam_vit_b_01ec64.pth"),
+            freeze_vit=model_cfg.get("freeze_vit", False),
+            transformer_dim=model_cfg.get("transformer_dim", 128),
+            transformer_heads=model_cfg.get("transformer_heads", 4),
+            transformer_pooled_size=model_cfg.get("transformer_pooled_size", 28),
+        )
+    else:
+        model = TTTSNet(
+            classes=model_cfg.get("classes", 2),
+            block_1=model_cfg.get("block_1", 3),
+            block_2=model_cfg.get("block_2", 8),
+            num_features=model_cfg.get("num_features", 64),
+        )
     model = model.to(device)
     return model
 
@@ -145,16 +204,21 @@ def create_losses(cfg: Dict[str, Any], device: torch.device):
     train_cfg = cfg["training_config"]
     dice_weight = train_cfg.get("loss_dice_weight", 1.0)
     bce_weight = train_cfg.get("loss_bce_weight", 1.0)
+    cldice_weight = train_cfg.get("loss_cldice_weight", 0.0)
 
     dice_loss = DiceLoss(mode="binary", from_logits=True).to(device)
     bce_loss = nn.BCEWithLogitsLoss(reduction="none").to(device)
     ce_loss = nn.CrossEntropyLoss(reduction="none").to(device)
+    cldice_loss = SoftCLDiceLoss(
+        iterations=train_cfg.get("cldice_iterations", 10)
+    ).to(device) if cldice_weight > 0 else None
 
-    return dice_loss, bce_loss, ce_loss, dice_weight, bce_weight
+    return dice_loss, bce_loss, ce_loss, cldice_loss, dice_weight, bce_weight, cldice_weight
 
 
 def compute_loss(pred: torch.Tensor, target: torch.Tensor, sample_weights: torch.Tensor,
-                 dice_loss, bce_loss, ce_loss, dice_weight: float, bce_weight: float):
+                 dice_loss, bce_loss, ce_loss, cldice_loss,
+                 dice_weight: float, bce_weight: float, cldice_weight: float):
     """sample_weights: [B] per-sample weight for labeled/pseudo"""
     if target.dim() == 4:
         target = target.squeeze(1)
@@ -163,6 +227,10 @@ def compute_loss(pred: torch.Tensor, target: torch.Tensor, sample_weights: torch
     vessel_logit = pred[:, 1:2, :, :]
 
     loss_dice = dice_loss(vessel_logit, target.unsqueeze(1).float())
+    loss_cldice = torch.tensor(0.0, device=pred.device)
+    if cldice_loss is not None and cldice_weight > 0:
+        vessel_prob = torch.sigmoid(vessel_logit)
+        loss_cldice = cldice_loss(vessel_prob, target.unsqueeze(1).float())
 
     # BCE with per-sample weighting
     bce_per_pixel = bce_loss(vessel_logit, target.unsqueeze(1).float())  # [B, 1, H, W]
@@ -174,17 +242,24 @@ def compute_loss(pred: torch.Tensor, target: torch.Tensor, sample_weights: torch
     ce_per_sample = ce_per_pixel.view(B, -1).mean(dim=1)  # [B]
     loss_ce = (ce_per_sample * sample_weights).mean()
 
-    total_loss = dice_weight * loss_dice + bce_weight * loss_bce + 0.5 * loss_ce
+    total_loss = (
+        dice_weight * loss_dice
+        + bce_weight * loss_bce
+        + 0.5 * loss_ce
+        + cldice_weight * loss_cldice
+    )
 
     return total_loss, {
         "loss_dice": loss_dice.item(),
         "loss_bce": loss_bce.item(),
         "loss_ce": loss_ce.item(),
+        "loss_cldice": loss_cldice.item(),
     }
 
 
 def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim.Optimizer,
-                    dice_loss, bce_loss, ce_loss, dice_weight: float, bce_weight: float,
+                    dice_loss, bce_loss, ce_loss, cldice_loss,
+                    dice_weight: float, bce_weight: float, cldice_weight: float,
                     device: torch.device, scaler: GradScaler, epoch: int, tracker: ExperimentTracker,
                     grad_accum: int = 1, use_amp: bool = True):
     model.train()
@@ -192,6 +267,7 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim
     total_dice = 0.0
     total_bce = 0.0
     total_ce = 0.0
+    total_cldice = 0.0
     num_batches = 0
 
     pbar = tqdm(loader, desc=f"Train Semi Epoch {epoch}")
@@ -203,7 +279,8 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim
         with autocast(enabled=use_amp):
             outputs = model(images)
             loss, loss_dict = compute_loss(
-                outputs, masks, weights, dice_loss, bce_loss, ce_loss, dice_weight, bce_weight
+                outputs, masks, weights, dice_loss, bce_loss, ce_loss, cldice_loss,
+                dice_weight, bce_weight, cldice_weight
             )
             loss = loss / grad_accum
 
@@ -220,6 +297,7 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim
         total_dice += loss_dict["loss_dice"]
         total_bce += loss_dict["loss_bce"]
         total_ce += loss_dict["loss_ce"]
+        total_cldice += loss_dict["loss_cldice"]
         num_batches += 1
 
         global_step = epoch * len(loader) + batch_idx
@@ -228,12 +306,14 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim
             "train/loss_dice": loss_dict["loss_dice"],
             "train/loss_bce": loss_dict["loss_bce"],
             "train/loss_ce": loss_dict["loss_ce"],
+            "train/loss_cldice": loss_dict["loss_cldice"],
         })
 
         pbar.set_postfix({
             "loss": f"{loss.item() * grad_accum:.4f}",
             "dice": f"{loss_dict['loss_dice']:.4f}",
             "bce": f"{loss_dict['loss_bce']:.4f}",
+            "cldice": f"{loss_dict['loss_cldice']:.4f}",
         })
 
     return {
@@ -241,12 +321,14 @@ def train_one_epoch(model: nn.Module, loader: DataLoader, optimizer: torch.optim
         "train/loss_dice": total_dice / max(num_batches, 1),
         "train/loss_bce": total_bce / max(num_batches, 1),
         "train/loss_ce": total_ce / max(num_batches, 1),
+        "train/loss_cldice": total_cldice / max(num_batches, 1),
     }
 
 
 @torch.no_grad()
 def validate(model: nn.Module, loader: DataLoader, device: torch.device,
-             dice_loss, bce_loss, ce_loss, dice_weight: float, bce_weight: float,
+             dice_loss, bce_loss, ce_loss, cldice_loss,
+             dice_weight: float, bce_weight: float, cldice_weight: float,
              use_amp: bool = True):
     model.eval()
     total_loss = 0.0
@@ -264,7 +346,10 @@ def validate(model: nn.Module, loader: DataLoader, device: torch.device,
             outputs = model(images)
             # validation 时用 weight=1 计算 loss（仅用于监控）
             dummy_weights = torch.ones(outputs.size(0), device=device)
-            loss, _ = compute_loss(outputs, masks, dummy_weights, dice_loss, bce_loss, ce_loss, dice_weight, bce_weight)
+            loss, _ = compute_loss(
+                outputs, masks, dummy_weights, dice_loss, bce_loss, ce_loss, cldice_loss,
+                dice_weight, bce_weight, cldice_weight
+            )
 
         vessel_prob = torch.softmax(outputs, dim=1)[:, 1:2, :, :]
         miou, dice = calc_miou_and_dice(vessel_prob, masks)
@@ -330,6 +415,11 @@ def main():
         exp_dir = Path(runtime_cfg.get("work_dir", "experiments")) / run_name
     exp_dir.mkdir(parents=True, exist_ok=True)
 
+    # 将 stdout/stderr 同时重定向到实验目录的 training.log
+    tee = TeeLogger(exp_dir / "training.log", mode="a")
+    sys.stdout = tee
+    sys.stderr = tee
+
     with open(exp_dir / "config.json", "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
 
@@ -355,7 +445,7 @@ def main():
 
     optimizer = create_optimizer(model, cfg)
     scheduler = create_scheduler(optimizer, cfg)
-    dice_loss, bce_loss, ce_loss, dice_weight, bce_weight = create_losses(cfg, device)
+    dice_loss, bce_loss, ce_loss, cldice_loss, dice_weight, bce_weight, cldice_weight = create_losses(cfg, device)
 
     use_amp = bool(train_cfg.get("use_amp", 1))
     scaler = GradScaler(enabled=use_amp)
@@ -370,7 +460,7 @@ def main():
 
         train_metrics = train_one_epoch(
             model, train_loader, optimizer,
-            dice_loss, bce_loss, ce_loss, dice_weight, bce_weight,
+            dice_loss, bce_loss, ce_loss, cldice_loss, dice_weight, bce_weight, cldice_weight,
             device, scaler, epoch, tracker,
             grad_accum=train_cfg.get("gradient_accumulation_steps", 1),
             use_amp=use_amp,
@@ -378,7 +468,7 @@ def main():
 
         val_metrics = validate(
             model, val_loader, device,
-            dice_loss, bce_loss, ce_loss, dice_weight, bce_weight,
+            dice_loss, bce_loss, ce_loss, cldice_loss, dice_weight, bce_weight, cldice_weight,
             use_amp=use_amp,
         )
 
@@ -404,6 +494,12 @@ def main():
                     model, optimizer, scheduler, epoch, epoch_metrics,
                     exp_dir / "checkpoints" / f"model_epoch_{epoch:03d}.pth"
                 )
+                # 只保留最新的 N 个 epoch checkpoint，释放磁盘
+                keep_last_n = runtime_cfg.get("keep_last_n_checkpoints", 1)
+                checkpoint_dir = exp_dir / "checkpoints"
+                epoch_ckpts = sorted(checkpoint_dir.glob("model_epoch_*.pth"))
+                for old_ckpt in epoch_ckpts[:-keep_last_n]:
+                    old_ckpt.unlink()
 
             if val_metrics["val/miou"] > best_miou:
                 best_miou = val_metrics["val/miou"]
@@ -426,6 +522,12 @@ def main():
 
     print(f"\nTraining completed. Best val mIoU: {best_miou:.4f}")
     print(f"Experiment directory: {exp_dir}")
+
+    # 恢复 stdout/stderr
+    if 'tee' in locals():
+        sys.stdout = tee.terminal
+        sys.stderr = tee.terminal
+        tee.close()
 
 
 if __name__ == "__main__":

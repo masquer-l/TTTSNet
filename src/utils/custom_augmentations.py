@@ -49,7 +49,7 @@ def center_crop(image, new_shape):
 class AddDustParticles(ImageOnlyTransform):
 
     def __init__(self, always_apply=False, p=0.5):
-        super(AddDustParticles, self).__init__(always_apply, p)
+        super(AddDustParticles, self).__init__(p=1.0 if always_apply else p)
 
     def apply(self, img, **params):
         return addDustParticles(img, mode='bernstein')
@@ -58,7 +58,7 @@ class AddDustParticles(ImageOnlyTransform):
 class AddStructuralDefects(ImageOnlyTransform):
 
     def __init__(self, always_apply=False, p=0.5):
-        super(AddStructuralDefects, self).__init__(always_apply, p)
+        super(AddStructuralDefects, self).__init__(p=1.0 if always_apply else p)
 
     def apply(self, img, **params):
         return addStructuralDefects(img)
@@ -67,7 +67,7 @@ class AddStructuralDefects(ImageOnlyTransform):
 class AddLaserPointer(ImageOnlyTransform):
 
     def __init__(self, always_apply=False, p=0.5):
-        super(AddLaserPointer, self).__init__(always_apply, p)
+        super(AddLaserPointer, self).__init__(p=1.0 if always_apply else p)
 
     def apply(self, img, **params):
         # detect laser, if it already exists do not add augmentation
@@ -96,7 +96,7 @@ class AddOpticalFiber(ImageOnlyTransform):
             always_apply=False,
             p=0.5
     ):
-        super(AddOpticalFiber, self).__init__(always_apply, p)
+        super(AddOpticalFiber, self).__init__(p=1.0 if always_apply else p)
         self.dark_gradient_inside = dark_gradient_inside
         self.draw_simple_cladding = draw_simple_cladding
         self.fibers_density_limit = to_tuple(fibers_density)
@@ -737,7 +737,7 @@ class CustomDefectsAugmentation(ImageOnlyTransform):
     """
 
     def __init__(self, always_apply=False, p=0.5):
-        super().__init__(always_apply, p)
+        super().__init__(p=1.0 if always_apply else p)
         self.laser = AddLaserPointer(p=1.0)
         self.dust = AddDustParticles(p=1.0)
         self.structural = AddStructuralDefects(p=1.0)

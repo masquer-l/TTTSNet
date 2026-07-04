@@ -1,158 +1,123 @@
-# TTTSNet 实验索引
+# TTTSNet 实验结果总表
 
-本文件记录 TTTSNet-Research v2.0 里程碑下的所有实验，确保实验路径、配置和结论可追踪。
+> 版本号规范：`TTTSNet-vX.Y.Z` + `EXP-XXX`
+> 目录规范见 [EXPERIMENT_LAYOUT.md](EXPERIMENT_LAYOUT.md)
+> 最后更新：2026-06-27
 
-**最后更新:** 2026-06-20
+## 1. 关键结论速览
 
----
+- **当前最强模型**：`TTTSNet-v2.1.0`（ViT backbone + 分层学习率）
+  - 内部 Val：mIoU 0.6360–0.6405，Dice 0.7626–0.7670
+  - SFY 测试：mIoU 0.6582–0.6625，Dice 0.7759–0.7766
+- **最佳单一结果**：`EXP-010`（ViT + 分层学习率，seed 2024）内部 mIoU 0.6401
+- **最有前景组合**：`EXP-015`（ViT + Transformer decoder + 分层学习率）内部 mIoU 0.6409，SFY 待评测
+- **clDice 修正实验**：`EXP-017` 进行中
 
-## 实验列表
+## 2. 主要结果总表
 
-| # | 实验名称 | 阶段 | 路径 | 状态 | Best val_mIoU | Best Epoch | 备注 |
-|---|---|---|---|---|---|---|---|
-| 1 | TTS-Net-Single baseline | Phase 2 | `experiments/tttsnet_single_20260619_233051/tttsnet_single_baseline_20260619_233056/` | ✅ 完成 | **0.5992** | 66 | 正式基线，训练 100 epochs，1.64h |
-| 2 | TTS-Net-Temporal v1 (λ=0.1) | Phase 3 | `experiments/tttsnet_temporal_20260620_013149/tttsnet_temporal_20260620_013154/` | ⏹️ 停止 | 0.5491 | 18 | 35 epochs 停止，未超 baseline |
-| 3 | TTS-Net-Temporal v2 (λ=1.0) | Phase 3 | `experiments/tttsnet_temporal_v2_20260620_021245/tttsnet_temporal_v2_20260620_021249/` | ✅ 完成待分析 | 0.5459 | - | 100 epochs 完成，仍未超 baseline |
-| 4 | Baseline vs Temporal v1 对比 | Phase 3 | `experiments/comparison_baseline_vs_temporal_v1/` | ✅ 完成 | - | - | 对比表格和曲线 |
-| 5 | TTS-Net-Semi（伪标签+有标注） | Phase 4 | `experiments/tttsnet_semi_20260620_085333/tttsnet_semi_20260620_085338/` | ⏸️ 已暂停 | 0.4630 (epoch 10) | 10 | 按诊断建议暂停，优先做实 baseline |
-| 6 | TTS-Net-Temporal v3（强同步增强，λ=0.1） | Phase 3 | `configs/config_temporal_v3.json` | ⏳ 待执行 | - | - | 待 T1 no-loss 诊断完成后决定 |
-| 7 | B3 AUFL loss 30ep quick check | Phase 2 | `experiments/tttsnet_aufl_30ep_20260620_103645/tttsnet_aufl_30ep_20260620_103650/` | ✅ 完成 | 0.5647 (epoch 27) | 27 | 30ep AUFL 低于 baseline 30ep (0.5720) |
-| 8 | T1 Temporal no-loss 诊断 | Phase 3 | `experiments/tttsnet_temporal_no_loss_20260620_114901/tttsnet_temporal_no_loss_20260620_114905/` | 🔄 进行中 | - | - | 判断 dataset/增强是否是主因 |
+| EXP | 模型版本 | 描述 | Seed | Best Val mIoU | Best Val Dice | Best Epoch | SFY mIoU | SFY Dice | SFY clDice | 论文用途 | 原始目录 | 状态 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| EXP-001 | TTTSNet-v1.0.0 | CNN baseline | 42 | 0.6049 | 0.7382 | 87 | 0.6275 | 0.7495 | 0.8080 | main baseline | [tttsnet_single_baseline_20260623_222644](experiments/tttsnet_single_baseline_20260623_222644) | completed |
+| EXP-002 | TTTSNet-v1.0.0 | CNN baseline | 2024 | 0.6038 | 0.7371 | 81 | - | - | - | stability | [tttsnet_single_baseline_20260625_050905](experiments/tttsnet_single_baseline_20260625_050905) | completed |
+| EXP-003 | TTTSNet-v1.0.0 | CNN baseline | 3407 | 0.5990 | 0.7316 | 93 | - | - | - | stability | [tttsnet_single_baseline_20260625_080901](experiments/tttsnet_single_baseline_20260625_080901) | completed |
+| EXP-004 | TTTSNet-v1.3.0 | CNN + Temporal v3 | 42 | 0.6038 | 0.7377 | 72 | 0.5982 | 0.7271 | 0.7879 | ablation | [tttsnet_temporal_v3_20260624_043531](experiments/tttsnet_temporal_v3_20260624_043531) | completed |
+| EXP-005 | TTTSNet-v2.0.0 | ViT backbone | 42 | 0.6191 | 0.7489 | 60 | 0.5707¹ | 0.7023¹ | 0.7850¹ | ablation | [tttsnet_vit_backbone_20260620_155115](experiments/tttsnet_vit_backbone_20260620_155115) | completed |
+| EXP-006 | TTTSNet-v2.0.0 | ViT backbone quick (50ep) | 42 | 0.5961 | 0.7310 | 44 | 0.5707 | 0.7023 | 0.7850 | ablation | [tttsnet_vit_backbone_20260624_020542](experiments/tttsnet_vit_backbone_20260624_020542) | completed |
+| EXP-007 | TTTSNet-v2.0.0 | ViT backbone | 42 | 0.5929 | 0.7284 | 67 | - | - | - | stability | [tttsnet_vit_backbone_20260625_112206](experiments/tttsnet_vit_backbone_20260625_112206) | completed |
+| EXP-008 | TTTSNet-v2.0.0 | ViT backbone | 2024 | 0.6208 | 0.7510 | 63 | - | - | - | stability | [tttsnet_vit_backbone_20260625_153352](experiments/tttsnet_vit_backbone_20260625_153352) | completed |
+| EXP-009 | TTTSNet-v2.1.0 | ViT + Layerwise LR | 42 | 0.6360 | 0.7626 | 83 | 0.6625 | 0.7766 | 0.8374 | **main result** | [tttsnet_vit_layerwise_lr_20260626_095855](experiments/tttsnet_vit_layerwise_lr_20260626_095855) | completed |
+| EXP-010 | TTTSNet-v2.1.0 | ViT + Layerwise LR | 2024 | 0.6401 | 0.7660 | 44 | 0.6582 | 0.7759 | 0.8255 | **main result** | [tttsnet_vit_layerwise_lr_20260626_203144](experiments/tttsnet_vit_layerwise_lr_20260626_203144) | completed |
+| EXP-011 | TTTSNet-v2.1.0 | ViT + Layerwise LR | 3407 | 0.6405 | 0.7670 | 61 | 0.6466 | 0.7644 | 0.8372 | stability | [tttsnet_vit_layerwise_lr_20260627_083345](experiments/tttsnet_vit_layerwise_lr_20260627_083345) | completed |
+| EXP-012 | TTTSNet-v3.0.0 | Transformer decoder (50ep) | 42 | 0.5989 | 0.7328 | 48 | 0.5999 | 0.7312 | 0.8082 | ablation | [tttsnet_transformer_decoder_20260624_080532](experiments/tttsnet_transformer_decoder_20260624_080532) | completed |
+| EXP-013 | TTTSNet-v3.0.1 | Transformer decoder v2 | 42 | 0.6162 | 0.7479 | 77 | 0.6218 | 0.7455 | 0.8123 | ablation | [tttsnet_transformer_decoder_v2_20260626_095857](experiments/tttsnet_transformer_decoder_v2_20260626_095857) | completed |
+| EXP-014 | TTTSNet-v4.2.0 | ViT + Transformer + clDice (50ep, bug) | 42 | 0.5935 | 0.7293 | 49 | 0.5904 | 0.7206 | 0.7927 | deprecated | [tttsnet_vit_transformer_cldice_20260624_100608](experiments/tttsnet_vit_transformer_cldice_20260624_100608) | completed |
+| EXP-015 | TTTSNet-v4.1.0 | ViT + Transformer decoder + Layerwise LR | 42 | 0.6409 | 0.7669 | 61 | 0.6433 | 0.7614 | 0.8324 | main result | [tttsnet_vit_transformer_decoder_layerwise_lr_20260627_083221](experiments/tttsnet_vit_transformer_decoder_layerwise_lr_20260627_083221) | completed |
+| EXP-016 | TTTSNet-v4.4.0 | ViT + Transformer + Semi-supervised v2 | 42 | 0.5955 | 0.7306 | 69 | 0.0106 | 0.0106 | 0.5178 | deprecated | [tttsnet_semi_v2_20260624_130832](experiments/tttsnet_semi_v2_20260624_130832) | completed |
+| EXP-017 | TTTSNet-v2.2.0 | ViT + Layerwise LR + clDice (fixed) | 42 | 0.6417 | 0.7682 | 71 | 0.6512 | 0.7673 | 0.8413 | ablation | [tttsnet_vit_layerwise_lr_cldice_20260627_162809](experiments/tttsnet_vit_layerwise_lr_cldice_20260627_162809) | completed |
 
----
+## 3. 模型版本说明
 
-## 诊断实验结果
-
-### B1 标签唯一值统计
-
-| 数据集 | 标签值 | 像素占比 | 出现图片数 |
+| 模型版本 | 架构 | 关键改动 | 代表性 EXP |
 |---|---|---|---|
-| Train | 0 | 88.72% | 2060 |
-| Train | 1 | 8.80% | 2043 |
-| Train | 2 | 1.11% | 581 |
-| Train | 3 | 1.37% | 293 |
-| Val | 0 | 86.83% | 658 |
-| Val | 1 | 9.53% | 648 |
-| Val | 2 | 1.95% | 320 |
-| Val | 3 | 1.69% | 83 |
+| TTTSNet-v1.0.0 | CNN baseline | 原版 TTTSNet，修复 augmentation bug 后重训 | EXP-001 ~ EXP-003 |
+| TTTSNet-v1.3.0 | CNN + Temporal | 3 帧时序一致性 | EXP-004 |
+| TTTSNet-v2.0.0 | ViT backbone | SAM ViT-B 替换 Init_Block | EXP-005 ~ EXP-008 |
+| TTTSNet-v2.1.0 | ViT + Layerwise LR | 对 `vit_encoder` 使用 0.1x 学习率 | EXP-009 ~ EXP-011 |
+| TTTSNet-v2.2.0 | ViT + Layerwise LR + clDice | 修正 clDice 各向异性腐蚀后测试 | EXP-017 |
+| TTTSNet-v3.0.0 | Transformer decoder | 在 CNN 后接轻量 Transformer | EXP-012 |
+| TTTSNet-v3.0.1 | Transformer decoder v2 | 4 层 + pos embed + pooled_size=56 | EXP-013 |
+| TTTSNet-v4.1.0 | ViT + Transformer + Layerwise LR | 组合最强组件 | EXP-015 |
+| TTTSNet-v4.2.0 | ViT + Transformer + clDice | 含 bug 的 clDice 早期尝试 | EXP-014 |
+| TTTSNet-v4.4.0 | ViT + Transformer + Semi | 半监督 v2 | EXP-016 |
 
-**结论**: 当前 `label > 1 -> 0` 的处理方式是正确的。把 value=2,3 也当前景反而会显著降低 val_mIoU（最佳 0.497 vs 当前 0.601）。value=2,3 不是目标血管区域。
+## 4. 多 Seed 稳定性（ViT + Layerwise LR）
 
-### B2 验证集阈值扫描（Single best checkpoint）
+| Seed | 内部 Val mIoU | 内部 Val Dice | SFY mIoU | SFY Dice |
+|---|---|---|---|---|
+| 42 | 0.6360 | 0.7626 | 0.6625 | 0.7766 |
+| 2024 | 0.6401 | 0.7660 | 0.6582 | 0.7759 |
+| 3407 | 0.6405 | 0.7670 | 0.6466 | 0.7644 |
+| **均值 ± 标准差** | **0.6389 ± 0.0025** | **0.7652 ± 0.0024** | **0.6524 ± 0.0080** | **0.7723 ± 0.0062** |
 
-| 标签处理方式 | best threshold | best val_mIoU | val_mIoU @ 0.5 |
-|---|---|---|---|
-| 只保留 value=1 | 0.4 | **0.6014** | 0.5984 |
-| 保留 value=1,2,3 | 0.3 | 0.4973 | 0.4897 |
+## 5. 效率对比
 
-**结论**: 0.5 阈值不是主要瓶颈；标签处理正确。
+数据来源：`experiments/efficiency_statistics.csv`
 
-### S1 伪标签质量审计（100 张随机样本）
+| 模型 | 配置 | 参数量 (M) | 推理延迟 (ms) | 输入尺寸 |
+|---|---|---|---|---|
+| TTTSNet | config.json | 5.31 | 12.12 | 448 |
+| TTTSNetViT | config_vit_backbone.json | 94.92 | 17.88 | 448 |
+| TTTSNet (Temporal) | config_temporal_v3.json | 5.31 | 6.36 | 448 |
+| TTTSNetTransformerDecoder | config_transformer_decoder.json | 5.57 | 6.90 | 448 |
+| TTTSNetViTTransformerDecoder | config_vit_transformer_cldice.json | 95.19 | 18.50 | 448 |
+| TTTSNetViTTransformerDecoder | config_semi_v2.json | 95.19 | 18.45 | 448 |
 
-| 指标 | 结果 |
-|---|---|
-| 总伪标签数 | 18745 |
-| 面积占比 | mean=11.43%, median=11.53%, max=29.01% |
-| 连通区域数 | mean=3.71, median=3, max=10 |
-| 空 mask | 0 |
-| 近全图 mask (>95%) | 0 |
-| 启发式 good | 90% |
-| 启发式 medium | 10% |
-| 启发式 bad | 0% |
+## 6. 废弃/参考实验
 
-**结论**: 伪标签质量较好，不像之前担心的"噪声主导"。但保留率 94% 仍偏宽，后续可尝试更严格的筛选策略。
+以下实验无完整 `epoch_history.csv` 或已被后续版本完全替代，不分配 EXP 编号，仅作追溯参考：
 
-### B3 AUFL loss 30ep Quick Check
-
-| 实验 | 30ep best val_mIoU | 对应 epoch | 备注 |
-|---|---|---|---|
-| AUFL (weight=0.5, delta=0.6, gamma=0.2) | **0.5647** | 27 | AsymmetricUnifiedFocalLoss |
-| Baseline (Dice+BCE+0.5CE) @ 30ep | **0.5720** | 24 | 当前训练脚本 |
-| Baseline (Dice+BCE+0.5CE) best | **0.5992** | 66 | 100 epochs 完整训练 |
-
-**结论**: 默认参数下 AUFL 30ep 未达到 baseline 30ep 水平。当前 loss 组合不是主要瓶颈，不建议继续投入 AUFL 调参。
-
-### T1 Temporal No-Loss 诊断
-
-- **目的**: 使用 TemporalDataset 但关闭 temporal loss（λ=0），判断 dataset/增强差异是否是 Temporal 低于 Single 的主因。
-- **状态**: 🔄 已启动
-- **实验目录**: `experiments/tttsnet_temporal_no_loss_20260620_114901/`
-- **判断标准**:
-  - 若 no-loss 结果 ≈ baseline 0.599：说明 temporal loss 本身无效，dataset 无问题
-  - 若 no-loss 结果 ≈ temporal v1/v2 (0.55)：说明 dataset/增强是主因，应考虑 temporal v3 强增强
-
----
-
-## `experiments/deprecated/` 归档说明
-
-`deprecated/` 仅用于存放因**代码异常中断、配置错误、无意义的调试运行**导致结果不可用的实验产物。
-
-> 注意：结果未达预期但训练过程正常的实验（如 Temporal v1/v2）不放入 `deprecated/`，仍保留在 `experiments/` 根目录供后续分析。
-
-### 当前归档内容
-
-| 归档路径 | 原因 |
-|---|---|
-| `experiments/deprecated/tttsnet_semi_20260620_084856/` | 首次启动 semi 训练时因 image/mask 尺寸不一致异常退出 |
-| `experiments/deprecated/semi_training_nohup.log` | 上述失败运行的 nohup 日志 |
-
-### 已物理删除的调试运行
-
-以下目录为早期无意义的测试运行，已直接删除，仅在此记录：
-
-| 原路径 | 原因 |
-|---|---|
-| `experiments/tttsnet_single_baseline_20260619_232711/` | 仅 2 epochs 的测试运行，非正式 baseline |
-| `experiments/tttsnet_temporal_20260620_012935/` | 仅 1 epoch 的测试运行 |
-
----
-
-## Phase 4 半监督状态
-
-| 组件 | 路径 | 状态 |
+| 目录 | 说明 | 状态 |
 |---|---|---|
-| 伪标签生成脚本 | `tools/generate_pseudo_labels.py` | ✅ 就绪 |
-| 半监督训练脚本 | `tools/train_semi.py` | ✅ 就绪 |
-| 半监督数据集 | `src/dataset_semi.py` | ✅ 就绪（已修复尺寸对齐） |
-| 半监督配置 | `configs/config_semi.json` | ✅ 就绪 |
-| 伪标签数据 | `sfy_data_v1_20251019/*/pseudo_labels/` | ✅ 已生成 18935 张（confidence≥0.9） |
-| 伪标签日志 | `experiments/pseudo_label_generation.log` | ✅ 成功完成 |
-| 半监督训练 | `experiments/tttsnet_semi_20260620_085333/tttsnet_semi_20260620_085338/` | 🔄 进行中 |
+| `tttsnet_single_20260619_233051` | 最早 CNN baseline 尝试 | 无记录 |
+| `tttsnet_aufl_30ep_20260620_103645` | AUFL loss 30ep 快速尝试 | 无完整记录 |
+| `tttsnet_temporal_20260620_013149` | Temporal 早期尝试 | 无完整记录 |
+| `tttsnet_temporal_v2_20260620_021245` | Temporal v2 | 无完整记录 |
+| `tttsnet_temporal_no_loss_20260620_114901` | Temporal 消融（loss=0） | 无完整记录 |
+| `tttsnet_temporal_v3_20260620_213745` | Temporal v3 早期尝试 | 无完整记录 |
+| `tttsnet_semi_20260620_085333` | 早期半监督尝试 | 无完整记录 |
+| `tttsnet_semi_v2_20260624_130909` | Semi v2 重复/失败 | 无 epoch_history |
+| `sam_random_points_20260620_140230` | SAM random points (TTTSNet 早期对齐) | 仅 2 epoch |
+| `A0_2_5_random_points_aligned_*` | TTTS_SAM A0.2.5 对齐实验 | 见 TTTS_SAM 文档 |
 
----
+## 7. 产物路径索引
 
-## 关键结论
+### 7.1 主结果模型
 
-1. **Baseline 0.599 是当前最佳结果**，未达 0.65 目标。
-2. **标签处理无误**：value=2,3 不是目标血管，当前 `label > 1 -> 0` 正确。
-3. **阈值 0.5 接近最优**：最佳阈值 0.4 仅比 0.5 高 0.003 mIoU。
-4. **AUFL loss 不是瓶颈**：默认参数 30ep AUFL best 0.5647，低于 baseline 30ep 0.5720。
-5. **伪标签质量较好**：100 张样本中 90% good, 10% medium, 0% bad。
-6. **Temporal 一致性约束未能提升性能**（v1: 0.549, v2: 0.546），T1 no-loss 诊断已启动以定位原因。
+- **EXP-009 (TTTSNet-v2.1.0, seed 42)**
+  - 目录：`experiments/tttsnet_vit_layerwise_lr_20260626_095855/`
+  - 最佳 checkpoint：`checkpoints/best_model.pth`
+  - SFY 结果：`sfy_results/summary.json`
+  - 日志：`training.log`
 
----
+- **EXP-010 (TTTSNet-v2.1.0, seed 2024)**
+  - 目录：`experiments/tttsnet_vit_layerwise_lr_20260626_203144/`
+  - 最佳 checkpoint：`checkpoints/best_model.pth`
+  - SFY 结果：`sfy_results/summary.json`
+  - 日志：`training.log`
 
-## 如何复现
+- **EXP-015 (TTTSNet-v4.1.0, seed 42)**
+  - 目录：`experiments/tttsnet_vit_transformer_decoder_layerwise_lr_20260627_083221/`
+  - 最佳 checkpoint：`checkpoints/best_model.pth`
+  - 日志：`training.log`
 
-```bash
-# Phase 2 baseline
-./scripts/train.sh configs/config.json
+## 8. 后续待办
 
-# Phase 3 temporal v1
-./scripts/train_temporal.sh configs/config_temporal.json
+- [x] 完成 EXP-017（ViT + Layerwise LR + clDice fixed）训练与 SFY 评测
+- [x] 为 EXP-015 运行 SFY 评测
+- [x] 为 EXP-011（seed 3407）运行 SFY 评测
+- [ ] 生成效率对比表与可视化
+- [ ] 根据最终指标更新论文实验表格
 
-# Phase 3 temporal v2
-./scripts/train_temporal_v2.sh configs/config_temporal_v2.json
+## 脚注
 
-# Phase 4 pseudo labels (示例)
-python tools/generate_pseudo_labels.py \
-  --config configs/config.json \
-  --checkpoint experiments/tttsnet_single_20260619_233051/tttsnet_single_baseline_20260619_233056/checkpoints/best_model.pth \
-  --unlabeled_path /autodl-fs/data/masquer.li/temperal_data/sfy_data_v1_20251019/ \
-  --output_dir /autodl-fs/data/masquer.li/temperal_data/sfy_data_v1_pseudo_labels
-
-# Phase 4 semi-supervised
-./scripts/train_semi.sh configs/config_semi.json
-```
-
-> 注意：路径已对齐到 `configs/` 和 `tools/` 目录结构。当前伪标签已直接生成到 `sfy_data_v1_20251019/*/pseudo_labels/`。
+¹ SFY 结果来自 `vit_backbone_50ep` checkpoint，100ep 模型未单独在 SFY 上评测。

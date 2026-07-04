@@ -1,0 +1,54 @@
+{
+  "model_config": {
+    "name": "TTTSNetViTTransformerDecoder",
+    "classes": 2,
+    "num_features": 64,
+    "block_1": 3,
+    "block_2": 8,
+    "sam_checkpoint": "/autodl-fs/data/masquer.li/model/sam_vit_b_01ec64.pth",
+    "freeze_vit": false,
+    "transformer_dim": 128,
+    "transformer_heads": 4,
+    "transformer_pooled_size": 28
+  },
+  "training_config": {
+    "num_epochs": 100,
+    "batch_size": 4,
+    "lr": 1e-4,
+    "weight_decay": 0.01,
+    "scheduler": "cosine",
+    "scheduler_t_max": 100,
+    "eta_min": 1e-7,
+    "num_workers": 4,
+    "use_amp": 1,
+    "gradient_accumulation_steps": 1,
+    "seed": 42,
+    "loss_dice_weight": 1.0,
+    "loss_bce_weight": 1.0,
+    "loss_cldice_weight": 0.2,
+    "cldice_iterations": 10
+  },
+  "dataset_config": {
+    "img_size": 448,
+    "binary": true,
+    "train_paths": [
+      "/autodl-fs/data/masquer.li/FetReg2021_dataset/FetReg2021_dataset/Train/Train_FetReg2021_Task1_Segmentation/"
+    ],
+    "pseudo_data_path": "/autodl-fs/data/masquer.li/temperal_data/sfy_data_v1_20251019/",
+    "pseudo_manifest_path": "pseudo_labels/sfy_data_v1_v2/pseudo_manifest.csv",
+    "pseudo_min_area_ratio": 0.02,
+    "pseudo_max_area_ratio": 0.30,
+    "pseudo_min_mean_confidence": 0.85,
+    "pseudo_min_topk_confidence": 0.90,
+    "val_paths": [
+      "/autodl-fs/data/masquer.li/FetReg2021_dataset/FetReg2021_dataset/Test/Test_FetReg2021_Task1_Segmentation/"
+    ]
+  },
+  "runtime_config": {
+    "run_name": "tttsnet_semi_v2",
+    "work_dir": "experiments",
+    "save_frequency": 10,
+    "validation_frequency": 1,
+    "debug": 0
+  }
+}

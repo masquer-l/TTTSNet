@@ -5,6 +5,7 @@
 """
 
 import argparse
+import csv
 import json
 import os
 import sys
@@ -23,6 +24,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from models.TTTSNet import TTTSNet
+from models.tttsnet_vit import TTTSNetViT
+from models.tttsnet_transformer_decoder import TTTSNetTransformerDecoder, TTTSNetViTTransformerDecoder
 
 
 class UnlabeledVideoDataset(Dataset):
@@ -63,12 +66,45 @@ def load_config(config_path: str) -> Dict[str, Any]:
 
 def load_model(checkpoint_path: str, cfg: Dict[str, Any], device: torch.device):
     model_cfg = cfg["model_config"]
-    model = TTTSNet(
-        classes=model_cfg.get("classes", 2),
-        block_1=model_cfg.get("block_1", 3),
-        block_2=model_cfg.get("block_2", 8),
-        num_features=model_cfg.get("num_features", 64),
-    )
+    model_name = model_cfg.get("name", "TTTSNet")
+    if model_name == "TTTSNetViT":
+        model = TTTSNetViT(
+            classes=model_cfg.get("classes", 2),
+            block_1=model_cfg.get("block_1", 3),
+            block_2=model_cfg.get("block_2", 8),
+            num_features=model_cfg.get("num_features", 64),
+            sam_checkpoint=model_cfg.get("sam_checkpoint", "/autodl-fs/data/masquer.li/model/sam_vit_b_01ec64.pth"),
+            freeze_vit=model_cfg.get("freeze_vit", False),
+        )
+    elif model_name == "TTTSNetTransformerDecoder":
+        model = TTTSNetTransformerDecoder(
+            classes=model_cfg.get("classes", 2),
+            block_1=model_cfg.get("block_1", 3),
+            block_2=model_cfg.get("block_2", 8),
+            num_features=model_cfg.get("num_features", 64),
+            transformer_dim=model_cfg.get("transformer_dim", 128),
+            transformer_heads=model_cfg.get("transformer_heads", 4),
+            transformer_pooled_size=model_cfg.get("transformer_pooled_size", 28),
+        )
+    elif model_name == "TTTSNetViTTransformerDecoder":
+        model = TTTSNetViTTransformerDecoder(
+            classes=model_cfg.get("classes", 2),
+            block_1=model_cfg.get("block_1", 3),
+            block_2=model_cfg.get("block_2", 8),
+            num_features=model_cfg.get("num_features", 64),
+            sam_checkpoint=model_cfg.get("sam_checkpoint", "/autodl-fs/data/masquer.li/model/sam_vit_b_01ec64.pth"),
+            freeze_vit=model_cfg.get("freeze_vit", False),
+            transformer_dim=model_cfg.get("transformer_dim", 128),
+            transformer_heads=model_cfg.get("transformer_heads", 4),
+            transformer_pooled_size=model_cfg.get("transformer_pooled_size", 28),
+        )
+    else:
+        model = TTTSNet(
+            classes=model_cfg.get("classes", 2),
+            block_1=model_cfg.get("block_1", 3),
+            block_2=model_cfg.get("block_2", 8),
+            num_features=model_cfg.get("num_features", 64),
+        )
     checkpoint = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model = model.to(device)
@@ -90,10 +126,16 @@ def generate_pseudo_labels(
     device: torch.device,
     output_dir: str,
     confidence_threshold: float = 0.9,
+    mean_confidence_threshold: float = 0.85,
+    topk_confidence_threshold: float = 0.90,
+    min_area_ratio: float = 0.02,
+    max_area_ratio: float = 0.30,
+    topk_ratio: float = 0.05,
 ):
     """生成伪标签并保存"""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_rows = []
 
     saved_count = 0
     total_count = 0
@@ -121,23 +163,64 @@ def generate_pseudo_labels(
                 ).squeeze()
 
             max_conf = prob.max().item()
+            pred_mask_bool = prob > 0.5
+            area_ratio = pred_mask_bool.float().mean().item()
+            if pred_mask_bool.any():
+                mean_conf = prob[pred_mask_bool].mean().item()
+            else:
+                mean_conf = 0.0
+            k = max(1, int(prob.numel() * topk_ratio))
+            topk_mean_conf = torch.topk(prob.flatten(), k=k).values.mean().item()
 
-            if max_conf >= confidence_threshold:
+            keep = (
+                max_conf >= confidence_threshold
+                and mean_conf >= mean_confidence_threshold
+                and topk_mean_conf >= topk_confidence_threshold
+                and min_area_ratio <= area_ratio <= max_area_ratio
+            )
+
+            rel_path = os.path.relpath(img_paths[i], "/autodl-fs/data/masquer.li/temperal_data/sfy_data_v1_20251019/")
+            out_path = output_dir / rel_path.replace("/images/", "/pseudo_labels/").replace(".jpg", ".png")
+            manifest_rows.append({
+                "image_path": img_paths[i],
+                "pseudo_label_path": str(out_path),
+                "max_confidence": max_conf,
+                "mean_confidence": mean_conf,
+                "topk_mean_confidence": topk_mean_conf,
+                "area_ratio": area_ratio,
+                "kept": int(keep),
+            })
+
+            if keep:
                 high_conf_count += 1
-                pred_mask = (prob > 0.5).cpu().numpy().astype(np.uint8) * 255
+                pred_mask = pred_mask_bool.cpu().numpy().astype(np.uint8) * 255
 
                 # 保存到与原路径对应的输出目录
-                rel_path = os.path.relpath(img_paths[i], "/autodl-fs/data/masquer.li/temperal_data/sfy_data_v1_20251019/")
-                out_path = output_dir / rel_path.replace("/images/", "/pseudo_labels/").replace(".jpg", ".png")
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 cv2.imwrite(str(out_path), pred_mask)
                 saved_count += 1
+
+    manifest_path = output_dir / "pseudo_manifest.csv"
+    with open(manifest_path, "w", newline="", encoding="utf-8") as f:
+        fieldnames = [
+            "image_path",
+            "pseudo_label_path",
+            "max_confidence",
+            "mean_confidence",
+            "topk_mean_confidence",
+            "area_ratio",
+            "kept",
+        ]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(manifest_rows)
 
     print(f"\nPseudo-label generation completed:")
     print(f"  Total frames: {total_count}")
     print(f"  High confidence (>={confidence_threshold}): {high_conf_count} ({high_conf_count/total_count*100:.1f}%)")
     print(f"  Saved pseudo labels: {saved_count}")
     print(f"  Output directory: {output_dir}")
+    print(f"  Manifest: {manifest_path}")
 
 
 def main():
@@ -151,6 +234,14 @@ def main():
                         help="Output directory for pseudo labels")
     parser.add_argument("--confidence_threshold", type=float, default=0.9,
                         help="Confidence threshold for saving pseudo labels")
+    parser.add_argument("--mean_confidence_threshold", type=float, default=0.85,
+                        help="Mean foreground confidence threshold")
+    parser.add_argument("--topk_confidence_threshold", type=float, default=0.90,
+                        help="Top-k mean confidence threshold")
+    parser.add_argument("--min_area_ratio", type=float, default=0.02,
+                        help="Minimum pseudo-mask area ratio")
+    parser.add_argument("--max_area_ratio", type=float, default=0.30,
+                        help="Maximum pseudo-mask area ratio")
     parser.add_argument("--batch_size", type=int, default=8, help="Batch size for inference")
     args = parser.parse_args()
 
@@ -167,6 +258,10 @@ def main():
         model, loader, device,
         output_dir=args.output_dir,
         confidence_threshold=args.confidence_threshold,
+        mean_confidence_threshold=args.mean_confidence_threshold,
+        topk_confidence_threshold=args.topk_confidence_threshold,
+        min_area_ratio=args.min_area_ratio,
+        max_area_ratio=args.max_area_ratio,
     )
 
 
