@@ -1,0 +1,88 @@
+{
+  "experiment_name": "tttsnet_single_baseline_20260623_222644",
+  "start_time": "2026-06-23T22:26:44.732015",
+  "platform": {
+    "python": "3.12.3",
+    "pytorch": "2.5.1+cu124",
+    "cuda": "12.4",
+    "gpu": "NVIDIA GeForce RTX 4080 SUPER",
+    "hostname": "autodl-container-f2c94a94e7-fcc9021a"
+  },
+  "config": {
+    "model_config": {
+      "name": "TTTSNet",
+      "classes": 2,
+      "num_features": 64,
+      "block_1": 3,
+      "block_2": 8
+    },
+    "training_config": {
+      "num_epochs": 100,
+      "batch_size": 4,
+      "lr": 0.0001,
+      "weight_decay": 0.01,
+      "scheduler": "cosine",
+      "scheduler_t_max": 100,
+      "eta_min": 1e-07,
+      "num_workers": 4,
+      "use_amp": 1,
+      "gradient_accumulation_steps": 1,
+      "seed": 42,
+      "loss_dice_weight": 1.0,
+      "loss_bce_weight": 1.0
+    },
+    "dataset_config": {
+      "img_size": 448,
+      "crop_size": 256,
+      "binary": true,
+      "train_paths": [
+        "/autodl-fs/data/masquer.li/FetReg2021_dataset/FetReg2021_dataset/Train/Train_FetReg2021_Task1_Segmentation/"
+      ],
+      "val_paths": [
+        "/autodl-fs/data/masquer.li/FetReg2021_dataset/FetReg2021_dataset/Test/Test_FetReg2021_Task1_Segmentation/"
+      ]
+    },
+    "augmentation_config": {
+      "horizontal_flip_p": 0.5,
+      "vertical_flip_p": 0.5,
+      "blur_motionblur_p": 0.2,
+      "custom_defects_p": 0.5,
+      "shift_scale_rotate_p": 0.2,
+      "color_jitter_p": 0.3,
+      "random_brightness_contrast_p": 0.3,
+      "clahe_p": 0.15
+    },
+    "runtime_config": {
+      "run_name": "tttsnet_single_baseline",
+      "work_dir": "experiments",
+      "save_frequency": 10,
+      "validation_frequency": 1,
+      "num_visualize": 5,
+      "debug": 0
+    }
+  },
+  "timeline": [],
+  "summary": {
+    "experiment_name": "tttsnet_single_baseline_20260623_222644",
+    "total_time_s": 12087.5,
+    "total_time_h": 3.36,
+    "total_epochs": 100,
+    "total_steps": 51500,
+    "final_metrics": {
+      "best_val_miou": 0.6049373907573296,
+      "best_epoch": 87,
+      "total_time_h": 3.3573392203119066
+    },
+    "best_metrics": {
+      "best_train/loss": 0.31887640724483046,
+      "best_train/loss_dice": 0.19335718803035404,
+      "best_train/loss_bce": 0.08888708587410381,
+      "best_train/loss_ce": 0.07326426761025942,
+      "best_val/loss": 0.45983387249888796,
+      "best_val/miou": 0.6049373907573296,
+      "best_val/dice": 0.7381906847159068,
+      "best_val/pixel_acc": 0.9619676351547242,
+      "best_epoch/time_s": 249.3066794872284
+    }
+  }
+}

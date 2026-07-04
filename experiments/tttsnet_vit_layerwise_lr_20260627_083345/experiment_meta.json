@@ -1,0 +1,93 @@
+{
+  "experiment_name": "tttsnet_vit_layerwise_lr_20260627_083345",
+  "start_time": "2026-06-27T08:33:45.500768",
+  "platform": {
+    "python": "3.12.3",
+    "pytorch": "2.5.1+cu124",
+    "cuda": "12.4",
+    "gpu": "NVIDIA GeForce RTX 4080 SUPER",
+    "hostname": "autodl-container-f2c94a94e7-fcc9021a"
+  },
+  "config": {
+    "model_config": {
+      "name": "TTTSNetViT",
+      "classes": 2,
+      "num_features": 64,
+      "block_1": 3,
+      "block_2": 8,
+      "sam_checkpoint": "/autodl-fs/data/masquer.li/model/sam_vit_b_01ec64.pth",
+      "freeze_vit": false
+    },
+    "training_config": {
+      "num_epochs": 100,
+      "batch_size": 4,
+      "lr": 0.0001,
+      "weight_decay": 0.01,
+      "scheduler": "cosine",
+      "scheduler_t_max": 100,
+      "eta_min": 1e-07,
+      "num_workers": 4,
+      "use_amp": 1,
+      "gradient_accumulation_steps": 1,
+      "seed": 42,
+      "loss_dice_weight": 1.0,
+      "loss_bce_weight": 1.0,
+      "backbone_lr_multiplier": 0.1,
+      "backbone_param_pattern": "vit_encoder"
+    },
+    "dataset_config": {
+      "img_size": 448,
+      "crop_size": 256,
+      "binary": true,
+      "train_paths": [
+        "/autodl-fs/data/masquer.li/FetReg2021_dataset/FetReg2021_dataset/Train/Train_FetReg2021_Task1_Segmentation/"
+      ],
+      "val_paths": [
+        "/autodl-fs/data/masquer.li/FetReg2021_dataset/FetReg2021_dataset/Test/Test_FetReg2021_Task1_Segmentation/"
+      ]
+    },
+    "augmentation_config": {
+      "horizontal_flip_p": 0.5,
+      "vertical_flip_p": 0.5,
+      "blur_motionblur_p": 0.2,
+      "custom_defects_p": 0.5,
+      "shift_scale_rotate_p": 0.2,
+      "color_jitter_p": 0.3,
+      "random_brightness_contrast_p": 0.3,
+      "clahe_p": 0.15
+    },
+    "runtime_config": {
+      "run_name": "tttsnet_vit_layerwise_lr",
+      "work_dir": "experiments",
+      "save_frequency": 10,
+      "validation_frequency": 1,
+      "num_visualize": 5,
+      "debug": 0
+    }
+  },
+  "timeline": [],
+  "summary": {
+    "experiment_name": "tttsnet_vit_layerwise_lr_20260627_083345",
+    "total_time_s": 15650.2,
+    "total_time_h": 4.35,
+    "total_epochs": 100,
+    "total_steps": 51500,
+    "final_metrics": {
+      "best_val_miou": 0.6405400642842958,
+      "best_epoch": 61,
+      "total_time_h": 4.3465010142326355
+    },
+    "best_metrics": {
+      "best_train/loss": 0.25409851650011195,
+      "best_train/loss_dice": 0.15524748320718412,
+      "best_train/loss_bce": 0.06994948875050522,
+      "best_train/loss_ce": 0.057487860461244884,
+      "best_train/loss_cldice": 0.0,
+      "best_val/loss": 0.41916364711342435,
+      "best_val/miou": 0.6405400642842958,
+      "best_val/dice": 0.7669508831067519,
+      "best_val/pixel_acc": 0.9648777181451971,
+      "best_epoch/time_s": 165.97626852989197
+    }
+  }
+}

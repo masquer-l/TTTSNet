@@ -1,0 +1,23 @@
+{
+  "experiment_name": "tttsnet_single_baseline_20260623_222644",
+  "total_time_s": 12087.5,
+  "total_time_h": 3.36,
+  "total_epochs": 100,
+  "total_steps": 51500,
+  "final_metrics": {
+    "best_val_miou": 0.6049373907573296,
+    "best_epoch": 87,
+    "total_time_h": 3.3573392203119066
+  },
+  "best_metrics": {
+    "best_train/loss": 0.31887640724483046,
+    "best_train/loss_dice": 0.19335718803035404,
+    "best_train/loss_bce": 0.08888708587410381,
+    "best_train/loss_ce": 0.07326426761025942,
+    "best_val/loss": 0.45983387249888796,
+    "best_val/miou": 0.6049373907573296,
+    "best_val/dice": 0.7381906847159068,
+    "best_val/pixel_acc": 0.9619676351547242,
+    "best_epoch/time_s": 249.3066794872284
+  }
+}

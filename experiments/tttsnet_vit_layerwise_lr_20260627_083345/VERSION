@@ -1,0 +1,5 @@
+EXP-ID: EXP-011
+Model-Version: TTTSNet-v2.1.0
+Seed: 3407
+Status: completed
+Description: ViT + Layerwise LR

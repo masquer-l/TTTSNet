@@ -1,0 +1,5 @@
+EXP-ID: EXP-001
+Model-Version: TTTSNet-v1.0.0
+Seed: 42
+Status: completed
+Description: CNN baseline

@@ -1,0 +1,24 @@
+{
+  "experiment_name": "tttsnet_vit_layerwise_lr_20260627_083345",
+  "total_time_s": 15650.2,
+  "total_time_h": 4.35,
+  "total_epochs": 100,
+  "total_steps": 51500,
+  "final_metrics": {
+    "best_val_miou": 0.6405400642842958,
+    "best_epoch": 61,
+    "total_time_h": 4.3465010142326355
+  },
+  "best_metrics": {
+    "best_train/loss": 0.25409851650011195,
+    "best_train/loss_dice": 0.15524748320718412,
+    "best_train/loss_bce": 0.06994948875050522,
+    "best_train/loss_ce": 0.057487860461244884,
+    "best_train/loss_cldice": 0.0,
+    "best_val/loss": 0.41916364711342435,
+    "best_val/miou": 0.6405400642842958,
+    "best_val/dice": 0.7669508831067519,
+    "best_val/pixel_acc": 0.9648777181451971,
+    "best_epoch/time_s": 165.97626852989197
+  }
+}
