@@ -92,6 +92,7 @@ def sync_batch(
     # Write back to review.db for unreviewable frames
     if write_db:
         for row in rows:
+            json_path = batch_dir / "labels" / f"{Path(row['image_path']).stem}.json"
             if row["annotation_status"] == "unreviewable":
                 update_frame_label(
                     segment_id=row["segment_id"],
@@ -99,7 +100,18 @@ def sync_batch(
                     label="invalid",
                     invalid_reason=row.get("invalid_reason") or "unreviewable",
                     reviewer=reviewer,
-                    annotation_json_path=str(batch_dir / "labels" / f"{Path(row['image_path']).stem}.json"),
+                    annotation_json_path=str(json_path),
+                    label_source="manual",
+                )
+            elif row["annotation_status"] == "reviewed":
+                update_frame_label(
+                    segment_id=row["segment_id"],
+                    frame_idx=int(row["frame_idx"]),
+                    label="valid",
+                    tags="reviewed",
+                    notes="reviewed via X-AnyLabeling",
+                    reviewer=reviewer,
+                    annotation_json_path=str(json_path),
                     label_source="manual",
                 )
 
