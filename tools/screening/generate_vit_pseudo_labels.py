@@ -101,7 +101,7 @@ def preprocess_image(image_path: Path, img_size: int, device: torch.device) -> t
     return tensor
 
 
-def mask_to_polygons(mask: np.ndarray, epsilon_factor: float = 0.0025) -> list[list[list[float]]]:
+def mask_to_polygons(mask: np.ndarray, epsilon_factor: float = 0.001) -> list[list[list[float]]]:
     """Convert a binary mask to a list of polygon point lists."""
     mask_u8 = (mask > 0).astype(np.uint8) * 255
     contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)

@@ -34,4 +34,5 @@ python anylabeling/app.py \
     "${WORKING_IMAGES_DIR}" \
     --output "${WORKING_LABELS_DIR}" \
     --labels vessel \
+    --flags reviewed,unreviewable \
     --autosave
