@@ -146,6 +146,103 @@ python tools/generate_pseudo_labels.py \
 
 ---
 
+## 3.4 batch_001 人工精修工作流（当前执行中）
+
+> 本小节记录 **2026-08-09** 起正在执行的 pixel 标注流程，所有路径和命令已固定为脚本。
+
+### 3.4.1 批次状态
+
+- **批次目录**：`/mnt/d/torch_project/dataset/sfy_screening/annotations/batch_001/`
+- **病例**：10 例（71, 29, 27, 33, 30, 26, 12, 28, 74, 31），每例 20 帧
+- **总帧数**：200 帧，已按视频真实 crop 参数裁剪
+- **ViT 伪标签**：已用 `TTTSNet_vit_model_epoch_100.pth` + `sam_vit_b_01ec64.pth` 生成
+- **当前任务**：人工精修 polygon，标记无法标注帧，避免重复加载已完成帧
+
+目录结构：
+
+```text
+batch_001/
+├── images/              # 已 crop 的原图
+├── labels/              # LabelMe JSON（含 ViT 伪标签 polygon）
+├── masks/               # ViT 二值 mask PNG
+├── working/             # 只含未完成帧的工作子集
+│   ├── images/          # 符号链接到 ../images
+│   └── labels/          # 符号链接到 ../labels
+├── mask_grayscale_map.json
+└── annotation_batch.csv
+```
+
+### 3.4.2 状态标记规范
+
+在 X-AnyLabeling 保存的 LabelMe JSON 中，通过 `flags` 字段标记：
+
+```json
+{
+  "flags": {
+    "reviewed": true
+  }
+}
+```
+
+```json
+{
+  "flags": {
+    "unreviewable": true,
+    "unreviewable_reason": "no_vessel"
+  }
+}
+```
+
+| flag | CSV 状态 | 含义 |
+|---|---|---|
+| `reviewed` | `reviewed` | 精修完成，可作为 GT |
+| `unreviewable` | `unreviewable` | 无法标注，导出时排除 |
+| 无 | `vit_pseudo` | 仍需精修 |
+
+### 3.4.3 启动 X-AnyLabeling（只加载未完成帧）
+
+```bash
+./scripts/launch_xanylabeling.sh
+```
+
+脚本会自动：
+1. 激活 `x-anylabeling` conda 环境
+2. 设置 `PYTHONPATH` 和 `XDG_RUNTIME_DIR`
+3. 打开 `batch_001/working/images/`（已过滤掉 reviewed/unreviewable 帧）
+4. 输出目录设为 `batch_001/working/labels/`
+5. 预定义标签 `vessel`，开启 `autosave`
+
+### 3.4.4 同步状态并刷新工作集
+
+每次完成一批标注后，运行：
+
+```bash
+bash tools/screening/sync_and_filter.sh
+```
+
+该脚本会：
+1. 扫描 `batch_001/labels/*.json` 的 `flags`
+2. 更新 `annotation_batch.csv` 的 `annotation_status`
+3. 把 `unreviewable` 帧回写 `review.db`（`frames.status = 'invalid'`）
+4. 重新生成 `batch_001/working/`，排除已完成帧
+
+之后重新运行 `./scripts/launch_xanylabeling.sh`，即可继续只标未完成帧。
+
+### 3.4.5 导出最终 GT
+
+人工精修全部完成后，从 `batch_001/labels/` 导出 mask：
+
+```bash
+# 在 X-AnyLabeling 中：
+# Export -> Export Mask Annotations
+# 选择 batch_001/mask_grayscale_map.json
+# 输出到 batch_001/masks/
+```
+
+训练数据导出时只应包含 `annotation_status = 'reviewed'` 的帧。
+
+---
+
 ## 4. 快速复现主实验
 
 ### 4.1 环境准备

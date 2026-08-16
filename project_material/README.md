@@ -16,6 +16,7 @@
 | 08 | [`08_sam_random_points.md`](08_sam_random_points.md) | SAM + 随机点提示 | 已对齐 TTTS_SAM，v3 训练中 |
 | 09 | [`09_experimental_conclusions_and_redo_plan.md`](09_experimental_conclusions_and_redo_plan.md) | 实验结论整理与重训计划 | 持续更新 |
 | 09 | [`08_code_refactor_plan.md`](08_code_refactor_plan.md) | 代码重构计划 | 规划中 |
+| 13 | [`13_data_resources_and_annotation_summary.md`](13_data_resources_and_annotation_summary.md) | 数据资源与标注方案总结 | 持续更新 |
 
 ## 当前关键结论
 

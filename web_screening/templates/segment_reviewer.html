@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+{% block title %}视频段审查 - SFY 数据筛选{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-auto">
+    <select id="filter-case" class="form-select">
+      <option value="">全部病例</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <select id="filter-status" class="form-select">
+      <option value="">全部状态</option>
+      <option value="pending">待审</option>
+      <option value="valid">有效</option>
+      <option value="invalid">无效</option>
+      <option value="uncertain">不确定</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <select id="sort-by" class="form-select">
+      <option value="segment_id">按段编号</option>
+      <option value="cnn_area_ratio DESC">CNN 前景面积（高→低）</option>
+      <option value="duration_sec DESC">时长（长→短）</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <button id="refresh" class="btn btn-outline-secondary">刷新</button>
+  </div>
+</div>
+
+<div id="segment-list" class="row g-3"></div>
+
+<nav class="mt-3">
+  <ul class="pagination">
+    <li class="page-item"><button id="prev-page" class="page-link">上一页</button></li>
+    <li class="page-item"><span id="page-info" class="page-link">第 1 页</span></li>
+    <li class="page-item"><button id="next-page" class="page-link">下一页</button></li>
+  </ul>
+</nav>
+
+<!-- 标签弹窗 -->
+<div class="modal fade" id="labelModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">标注视频段</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-segment-id">
+        <div class="mb-3">
+          <label class="form-label">状态</label>
+          <select id="modal-status" class="form-select">
+            <option value="valid">有效</option>
+            <option value="invalid">无效</option>
+            <option value="uncertain">不确定</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">无效原因（可多选）</label>
+          <div id="reason-buttons" class="d-flex flex-wrap gap-2 mb-2"></div>
+          <input type="text" id="modal-reason" class="form-control" placeholder="可手动输入其他原因，多个用逗号分隔">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">标签（困难样本 / 价值样本）</label>
+          <div id="tag-buttons" class="d-flex flex-wrap gap-2 mb-2"></div>
+          <input type="text" id="modal-tags" class="form-control" placeholder="可输入自定义标签，多个用逗号分隔，例如：羊水浑浊">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">备注</label>
+          <textarea id="modal-notes" class="form-control" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" id="modal-save" class="btn btn-primary">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 段缩略图放大弹窗 -->
+<div class="modal fade" id="segmentZoomModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="segment-zoom-title">放大查看</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center">
+        <img id="segment-zoom-image" src="" alt="段首帧原图" class="img-fluid border">
+      </div>
+      <div class="modal-footer">
+        <a id="segment-zoom-frames-link" href="#" class="btn btn-primary">进入逐帧审查</a>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let currentPage = 1;
+const pageSize = 24;
+let currentSegments = [];
+let sessionId = localStorage.getItem('screening_session_id');
+let customTags = [];
+
+const INVALID_REASONS = [
+  {key: '无明显血管', label: '无明显血管'},
+  {key: '失焦/模糊', label: '失焦/模糊'},
+  {key: '过曝', label: '过曝'},
+  {key: '欠曝', label: '欠曝'},
+  {key: '激光光斑/反光', label: '激光光斑/反光'},
+  {key: '器械遮挡', label: '器械遮挡'},
+  {key: '血液/组织碎片遮挡', label: '血液/组织碎片遮挡'},
+  {key: '运动模糊', label: '运动模糊'},
+  {key: '镜头离开体内/黑屏/白屏', label: '镜头离开体内/黑屏/白屏'},
+  {key: '文件损坏/解码失败', label: '文件损坏/解码失败'},
+  {key: '其他', label: '其他'},
+];
+
+const SUGGESTED_TAGS = [
+  {key: '细小血管', label: '细小血管'},
+  {key: '羊水浑浊', label: '羊水浑浊'},
+  {key: '明暗变化', label: '明暗变化'},
+  {key: '胎儿遮挡', label: '胎儿遮挡'},
+  {key: '低对比度', label: '低对比度'},
+  {key: '激光光斑', label: '激光光斑'},
+  {key: '器械遮挡', label: '器械遮挡'},
+  {key: '前景面积小', label: '前景面积小'},
+  {key: '前景面积大', label: '前景面积大'},
+  {key: '边界伪影', label: '边界伪影'},
+  {key: '运动模糊', label: '运动模糊'},
+  {key: '失焦', label: '失焦'},
+];
+
+function makeToggleButtons(containerId, options, targetInputId) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  options.forEach(opt => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-outline-secondary btn-sm';
+    btn.textContent = opt.label;
+    btn.dataset.key = opt.key;
+    btn.addEventListener('click', () => {
+      btn.classList.toggle('active');
+      const input = document.getElementById(targetInputId);
+      const current = input.value.split(',').map(s => s.trim()).filter(Boolean);
+      if (btn.classList.contains('active')) {
+        if (!current.includes(opt.key)) current.push(opt.key);
+      } else {
+        const idx = current.indexOf(opt.key);
+        if (idx >= 0) current.splice(idx, 1);
+      }
+      input.value = current.join(',');
+    });
+    container.appendChild(btn);
+  });
+}
+
+function resetToggleButtons(containerId, inputId) {
+  document.querySelectorAll(`#${containerId} button`).forEach(btn => btn.classList.remove('active'));
+  document.getElementById(inputId).value = '';
+}
+
+function syncToggleButtons(containerId, inputId) {
+  const current = document.getElementById(inputId).value.split(',').map(s => s.trim()).filter(Boolean);
+  document.querySelectorAll(`#${containerId} button`).forEach(btn => {
+    btn.classList.toggle('active', current.includes(btn.dataset.key));
+  });
+}
+
+function mergeTagOptions(defaultOptions, extraTags) {
+  const merged = defaultOptions.map(o => ({...o}));
+  const existing = new Set(merged.map(o => o.key));
+  extraTags.forEach(tag => {
+    if (tag && !existing.has(tag)) {
+      merged.push({key: tag, label: tag});
+      existing.add(tag);
+    }
+  });
+  return merged;
+}
+
+function refreshTagButtons() {
+  const currentVal = document.getElementById('modal-tags').value;
+  makeToggleButtons('tag-buttons', mergeTagOptions(SUGGESTED_TAGS, customTags), 'modal-tags');
+  document.getElementById('modal-tags').value = currentVal;
+  syncToggleButtons('tag-buttons', 'modal-tags');
+}
+
+async function loadCustomTags() {
+  try {
+    const res = await fetch('/api/tags');
+    customTags = await res.json();
+    refreshTagButtons();
+  } catch (e) {
+    console.error('failed to load tags', e);
+  }
+}
+  if (!sessionId) {
+    const res = await fetch('/api/sessions', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: 'segment_review', reviewer: 'default'})
+    });
+    const data = await res.json();
+    sessionId = data.session_id;
+    localStorage.setItem('screening_session_id', sessionId);
+  }
+}
+
+async function loadCases() {
+  const res = await fetch('/api/videos');
+  const videos = await res.json();
+  const select = document.getElementById('filter-case');
+  const cases = [...new Set(videos.map(v => v.case))].sort();
+  cases.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = c;
+    select.appendChild(opt);
+  });
+}
+
+async function loadSegments() {
+  await ensureSession();
+  const caseFilter = document.getElementById('filter-case').value;
+  const statusFilter = document.getElementById('filter-status').value;
+  const sort = document.getElementById('sort-by').value;
+  const params = new URLSearchParams({limit: pageSize, offset: (currentPage - 1) * pageSize, sort});
+  if (caseFilter) params.set('case', caseFilter);
+  if (statusFilter) params.set('status', statusFilter);
+  const res = await fetch('/api/segments?' + params.toString());
+  currentSegments = await res.json();
+  renderSegments();
+}
+
+function statusText(status) {
+  return {pending: '待审', valid: '有效', invalid: '无效', uncertain: '不确定', split: '已拆分'}[status] || status;
+}
+
+function statusColor(status) {
+  return {pending: 'secondary', valid: 'success', invalid: 'danger', uncertain: 'warning', split: 'dark'}[status] || 'secondary';
+}
+
+function renderSegments() {
+  const container = document.getElementById('segment-list');
+  container.innerHTML = '';
+  currentSegments.forEach(seg => {
+    const card = document.createElement('div');
+    card.className = 'col-md-4 col-lg-3';
+    const area = seg.cnn_area_ratio != null ? (seg.cnn_area_ratio * 100).toFixed(1) + '%' : '无';
+    const tagBadges = (seg.tags || '').split(',').map(t => t.trim()).filter(Boolean).map(t =>
+      `<span class="badge bg-info me-1">${t}</span>`
+    ).join('');
+    card.innerHTML = `
+      <div class="card h-100">
+        <img src="${seg.thumbnail_url || ''}" class="card-img-top preview-thumb" alt="预览" style="cursor:zoom-in;" onclick="openSegmentZoom('${seg.segment_id}', ${seg.first_preview_frame_idx || 0})">
+        <div class="card-body">
+          <h6 class="card-title text-truncate" title="${seg.segment_id}"><a href="/frames/${seg.segment_id}">${seg.segment_id}</a></h6>
+          <p class="card-text small">
+            病例 ${seg.case} <br>
+            帧范围 ${seg.start_frame}-${seg.end_frame} <br>
+            时长 ${seg.duration_sec.toFixed(1)}s <br>
+            CNN 前景面积: ${area}
+          </p>
+          <div class="mb-1">${tagBadges}</div>
+          <span class="badge bg-${statusColor(seg.status)} mb-2">${statusText(seg.status)}</span>
+          <div class="d-flex flex-wrap gap-1">
+            <button class="btn btn-sm btn-success" onclick="event.stopPropagation(); quickLabel('${seg.segment_id}', 'valid')">有效</button>
+            <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); quickLabel('${seg.segment_id}', 'invalid')">无效</button>
+            <button class="btn btn-sm btn-warning" onclick="event.stopPropagation(); quickLabel('${seg.segment_id}', 'uncertain')">不确定</button>
+            <button class="btn btn-sm btn-info" onclick="event.stopPropagation(); openModal('${seg.segment_id}', '${seg.status || 'valid'}')">标签</button>
+            <button class="btn btn-sm btn-dark" onclick="event.stopPropagation(); openSegmentZoom('${seg.segment_id}', ${seg.first_preview_frame_idx || 0})">放大</button>
+          </div>
+        </div>
+      </div>`;
+    container.appendChild(card);
+  });
+  document.getElementById('page-info').textContent = '第 ' + currentPage + ' 页';
+}
+
+function openSegmentZoom(segmentId, frameIdx) {
+  document.getElementById('segment-zoom-title').textContent = '放大查看 - ' + segmentId;
+  document.getElementById('segment-zoom-image').src = `/api/frame_full/${segmentId}/${frameIdx}?t=${Date.now()}`;
+  document.getElementById('segment-zoom-frames-link').href = '/frames/' + segmentId;
+  const modal = new bootstrap.Modal(document.getElementById('segmentZoomModal'));
+  modal.show();
+}
+
+async function quickLabel(segmentId, label) {
+  const seg = currentSegments.find(s => s.segment_id === segmentId);
+  const reason = seg?.invalid_reason || '';
+  const tags = seg?.tags || '';
+  const notes = seg?.notes || '';
+  await fetch(`/api/segments/${segmentId}/label`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({label, invalid_reason: reason, tags, notes, session_id: sessionId})
+  });
+  loadSegments();
+}
+
+async function saveModalLabel(segmentId, label, reason, tags, notes) {
+  await fetch(`/api/segments/${segmentId}/label`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({label, invalid_reason: reason, tags, notes, session_id: sessionId})
+  });
+  loadSegments();
+}
+
+function openModal(segmentId, defaultStatus) {
+  document.getElementById('modal-segment-id').value = segmentId;
+  document.getElementById('modal-status').value = defaultStatus;
+  resetToggleButtons('reason-buttons', 'modal-reason');
+  resetToggleButtons('tag-buttons', 'modal-tags');
+  document.getElementById('modal-notes').value = '';
+  const seg = currentSegments.find(s => s.segment_id === segmentId);
+  if (seg) {
+    if (seg.tags) {
+      document.getElementById('modal-tags').value = seg.tags;
+      syncToggleButtons('tag-buttons', 'modal-tags');
+    }
+    if (seg.invalid_reason) {
+      document.getElementById('modal-reason').value = seg.invalid_reason;
+      syncToggleButtons('reason-buttons', 'modal-reason');
+    }
+    if (seg.notes) document.getElementById('modal-notes').value = seg.notes;
+  }
+  const modal = new bootstrap.Modal(document.getElementById('labelModal'));
+  modal.show();
+}
+
+makeToggleButtons('reason-buttons', INVALID_REASONS, 'modal-reason');
+makeToggleButtons('tag-buttons', SUGGESTED_TAGS, 'modal-tags');
+
+document.getElementById('modal-tags').addEventListener('input', () => syncToggleButtons('tag-buttons', 'modal-tags'));
+document.getElementById('modal-reason').addEventListener('input', () => syncToggleButtons('reason-buttons', 'modal-reason'));
+
+document.getElementById('modal-save').addEventListener('click', async () => {
+  const segmentId = document.getElementById('modal-segment-id').value;
+  const label = document.getElementById('modal-status').value;
+  const reason = document.getElementById('modal-reason').value;
+  const tags = document.getElementById('modal-tags').value;
+  const notes = document.getElementById('modal-notes').value;
+  await saveModalLabel(segmentId, label, reason, tags, notes);
+  bootstrap.Modal.getInstance(document.getElementById('labelModal')).hide();
+});
+
+document.getElementById('filter-case').addEventListener('change', () => { currentPage = 1; loadSegments(); });
+document.getElementById('filter-status').addEventListener('change', () => { currentPage = 1; loadSegments(); });
+document.getElementById('sort-by').addEventListener('change', () => { currentPage = 1; loadSegments(); });
+document.getElementById('refresh').addEventListener('click', loadSegments);
+document.getElementById('prev-page').addEventListener('click', () => { if (currentPage > 1) { currentPage--; loadSegments(); } });
+document.getElementById('next-page').addEventListener('click', () => { currentPage++; loadSegments(); });
+
+loadCases();
+loadSegments();
+loadCustomTags();
+</script>
+{% endblock %}

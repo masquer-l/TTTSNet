@@ -23,6 +23,15 @@ data/
 dataset/
 *.csv
 
+# Screening generated artifacts (kept outside repo)
+sfy_screening/
+web_screening/instance/
+
+# Local environment / secrets
+claude_run.sh
+.env
+*.key
+
 # IDE
 .vscode/
 .idea/

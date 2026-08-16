@@ -1,0 +1,597 @@
+{% extends "base.html" %}
+{% block title %}帧级审查 - SFY 数据筛选{% endblock %}
+{% block content %}
+<div class="row g-2 align-items-end mb-3">
+  <div class="col-auto">
+    <label class="form-label">病例</label>
+    <select id="filter-case" class="form-select form-select-sm">
+      <option value="">全部病例</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label">视频</label>
+    <select id="filter-video" class="form-select form-select-sm">
+      <option value="">全部视频</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label">状态</label>
+    <select id="filter-status" class="form-select form-select-sm">
+      <option value="">全部</option>
+      <option value="pending">待审</option>
+      <option value="valid">有效</option>
+      <option value="invalid">无效</option>
+      <option value="uncertain">不确定</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label">排序</label>
+    <select id="sort-by" class="form-select form-select-sm">
+      <option value="frame_idx_asc">默认帧顺序</option>
+      <option value="cnn_ratio_desc">CNN 前景占比 ↓</option>
+      <option value="cnn_ratio_asc">CNN 前景占比 ↑</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <label class="form-label">每页</label>
+    <select id="page-size" class="form-select form-select-sm">
+      <option value="24">24</option>
+      <option value="48" selected>48</option>
+      <option value="96">96</option>
+    </select>
+  </div>
+  <div class="col-auto">
+    <div class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" id="overlay-toggle">
+      <label class="form-check-label" for="overlay-toggle">显示 CNN 分割叠加</label>
+    </div>
+  </div>
+  <div class="col-auto">
+    <button id="btn-refresh" class="btn btn-primary btn-sm">刷新</button>
+  </div>
+  <div class="col-auto">
+    <button id="btn-invalidate-video" class="btn btn-outline-danger btn-sm" disabled>标记当前视频无效</button>
+  </div>
+</div>
+
+<div id="frame-grid" class="row g-3"></div>
+
+<nav class="mt-4" aria-label="分页">
+  <ul class="pagination justify-content-center">
+    <li class="page-item"><button id="page-prev" class="page-link">上一页</button></li>
+    <li class="page-item"><span id="page-info" class="page-link">第 1 / 1 页</span></li>
+    <li class="page-item"><button id="page-next" class="page-link">下一页</button></li>
+  </ul>
+</nav>
+
+<!-- 帧标注弹窗 -->
+<div class="modal fade" id="frameLabelModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">标注单帧</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-segment-id">
+        <input type="hidden" id="modal-frame-idx">
+        <div class="mb-3">
+          <label class="form-label">状态</label>
+          <select id="modal-frame-status" class="form-select">
+            <option value="valid">有效</option>
+            <option value="invalid">无效</option>
+            <option value="uncertain">不确定</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">无效原因（可多选，仅无效时需要）</label>
+          <div id="frame-reason-buttons" class="d-flex flex-wrap gap-2 mb-2"></div>
+          <input type="text" id="modal-frame-reason" class="form-control" placeholder="可手动输入其他原因，多个用逗号分隔">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">标签（困难/价值样本）</label>
+          <div id="frame-tag-buttons" class="d-flex flex-wrap gap-2 mb-2"></div>
+          <input type="text" id="modal-frame-tags" class="form-control" placeholder="可输入自定义标签，多个用逗号分隔，例如：羊水浑浊">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">备注</label>
+          <textarea id="modal-frame-notes" class="form-control" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" id="modal-frame-save" class="btn btn-primary">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 图片放大弹窗 -->
+<div class="modal fade" id="zoomModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="zoom-title">放大查看</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center">
+        <div class="form-check form-switch mb-2">
+          <input class="form-check-input" type="checkbox" id="zoom-overlay-toggle">
+          <label class="form-check-label" for="zoom-overlay-toggle">显示 CNN 分割叠加</label>
+        </div>
+        <div class="position-relative d-inline-block">
+          <img id="zoom-image" src="" alt="原分辨率帧" class="img-fluid border">
+          <img id="zoom-overlay" src="" alt="CNN overlay" class="position-absolute top-0 start-0 w-100 h-100" style="display:none; pointer-events:none; opacity:0.5; mix-blend-mode: screen;">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let frames = [];
+let totalFrames = 0;
+let currentPage = 0;
+let sessionId = localStorage.getItem('screening_session_id');
+let customTags = [];
+let allVideos = [];
+
+const INVALID_REASONS = [
+  {key: '无明显血管', label: '无明显血管'},
+  {key: '失焦/模糊', label: '失焦/模糊'},
+  {key: '过曝', label: '过曝'},
+  {key: '欠曝', label: '欠曝'},
+  {key: '激光光斑/反光', label: '激光光斑/反光'},
+  {key: '器械遮挡', label: '器械遮挡'},
+  {key: '血液/组织碎片遮挡', label: '血液/组织碎片遮挡'},
+  {key: '运动模糊', label: '运动模糊'},
+  {key: '镜头离开体内/黑屏/白屏', label: '镜头离开体内/黑屏/白屏'},
+  {key: '文件损坏/解码失败', label: '文件损坏/解码失败'},
+  {key: '其他', label: '其他'},
+];
+
+const SUGGESTED_TAGS = [
+  {key: '细小血管', label: '细小血管'},
+  {key: '羊水浑浊', label: '羊水浑浊'},
+  {key: '明暗变化', label: '明暗变化'},
+  {key: '胎儿遮挡', label: '胎儿遮挡'},
+  {key: '低对比度', label: '低对比度'},
+  {key: '激光光斑', label: '激光光斑'},
+  {key: '器械遮挡', label: '器械遮挡'},
+  {key: '前景面积小', label: '前景面积小'},
+  {key: '前景面积大', label: '前景面积大'},
+  {key: '边界伪影', label: '边界伪影'},
+  {key: '运动模糊', label: '运动模糊'},
+  {key: '失焦', label: '失焦'},
+];
+
+function makeToggleButtons(containerId, options, targetInputId) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  options.forEach(opt => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-outline-secondary btn-sm';
+    btn.textContent = opt.label;
+    btn.dataset.key = opt.key;
+    btn.addEventListener('click', () => {
+      btn.classList.toggle('active');
+      const input = document.getElementById(targetInputId);
+      const current = input.value.split(',').map(s => s.trim()).filter(Boolean);
+      if (btn.classList.contains('active')) {
+        if (!current.includes(opt.key)) current.push(opt.key);
+      } else {
+        const idx = current.indexOf(opt.key);
+        if (idx >= 0) current.splice(idx, 1);
+      }
+      input.value = current.join(',');
+    });
+    container.appendChild(btn);
+  });
+}
+
+function resetToggleButtons(containerId, inputId) {
+  document.querySelectorAll(`#${containerId} button`).forEach(btn => btn.classList.remove('active'));
+  document.getElementById(inputId).value = '';
+}
+
+function syncToggleButtons(containerId, inputId) {
+  const current = document.getElementById(inputId).value.split(',').map(s => s.trim()).filter(Boolean);
+  document.querySelectorAll(`#${containerId} button`).forEach(btn => {
+    btn.classList.toggle('active', current.includes(btn.dataset.key));
+  });
+}
+
+function mergeTagOptions(defaultOptions, extraTags) {
+  const merged = defaultOptions.map(o => ({...o}));
+  const existing = new Set(merged.map(o => o.key));
+  extraTags.forEach(tag => {
+    if (tag && !existing.has(tag)) {
+      merged.push({key: tag, label: tag});
+      existing.add(tag);
+    }
+  });
+  return merged;
+}
+
+function refreshTagButtons() {
+  const currentVal = document.getElementById('modal-frame-tags').value;
+  makeToggleButtons('frame-tag-buttons', mergeTagOptions(SUGGESTED_TAGS, customTags), 'modal-frame-tags');
+  document.getElementById('modal-frame-tags').value = currentVal;
+  syncToggleButtons('frame-tag-buttons', 'modal-frame-tags');
+}
+
+async function loadCustomTags() {
+  try {
+    const res = await fetch('/api/tags');
+    customTags = await res.json();
+    refreshTagButtons();
+  } catch (e) {
+    console.error('failed to load tags', e);
+  }
+}
+
+async function ensureSession() {
+  if (!sessionId) {
+    const res = await fetch('/api/sessions', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: 'frame_review', reviewer: 'default'})
+    });
+    const data = await res.json();
+    sessionId = data.session_id;
+    localStorage.setItem('screening_session_id', sessionId);
+  }
+}
+
+async function loadVideos() {
+  const res = await fetch('/api/videos');
+  allVideos = await res.json();
+  populateCaseSelect();
+  populateVideoSelect();
+}
+
+function populateCaseSelect() {
+  const cases = [...new Set(allVideos.map(v => v.case))].sort();
+  const sel = document.getElementById('filter-case');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">全部病例</option>';
+  cases.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = c;
+    sel.appendChild(opt);
+  });
+  sel.value = current;
+}
+
+function populateVideoSelect() {
+  const caseVal = document.getElementById('filter-case').value;
+  const videos = allVideos.filter(v => !caseVal || v.case === caseVal).map(v => v.video_name).sort();
+  const sel = document.getElementById('filter-video');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">全部视频</option>';
+  videos.forEach(vn => {
+    const opt = document.createElement('option');
+    opt.value = vn;
+    opt.textContent = vn;
+    sel.appendChild(opt);
+  });
+  if (!videos.includes(current)) sel.value = '';
+  else sel.value = current;
+}
+
+function getLimit() {
+  return parseInt(document.getElementById('page-size').value, 10);
+}
+
+async function loadFrames() {
+  await ensureSession();
+  const limit = getLimit();
+  const offset = currentPage * limit;
+  const params = new URLSearchParams({
+    only_preview: '1',
+    limit: String(limit),
+    offset: String(offset),
+    sort: document.getElementById('sort-by').value,
+  });
+  const caseVal = document.getElementById('filter-case').value;
+  const videoVal = document.getElementById('filter-video').value;
+  const statusVal = document.getElementById('filter-status').value;
+  if (caseVal) params.set('case', caseVal);
+  if (videoVal) params.set('video_name', videoVal);
+  if (statusVal) params.set('status', statusVal);
+
+  const res = await fetch(`/api/frames?${params.toString()}`);
+  const data = await res.json();
+  frames = data.frames || [];
+  totalFrames = data.total || 0;
+  renderFrames();
+  renderPagination();
+}
+
+function statusText(status) {
+  return {pending: '待审', valid: '有效', invalid: '无效', uncertain: '不确定'}[status] || status;
+}
+
+function statusColor(status) {
+  return {pending: 'secondary', valid: 'success', invalid: 'danger', uncertain: 'warning'}[status] || 'secondary';
+}
+
+function renderFrames() {
+  const container = document.getElementById('frame-grid');
+  container.innerHTML = '';
+  const showOverlay = document.getElementById('overlay-toggle').checked;
+  if (!frames.length) {
+    container.innerHTML = '<div class="col-12 text-muted">当前条件下没有帧。</div>';
+    return;
+  }
+  frames.forEach(f => {
+    const col = document.createElement('div');
+    col.className = 'col-md-3 col-lg-2';
+    const statusClass = f.status === 'valid' ? 'frame-valid' : f.status === 'invalid' ? 'frame-invalid' : f.status === 'uncertain' ? 'frame-uncertain' : '';
+    const overlayDisplay = showOverlay ? 'block' : 'none';
+    const overlayHtml = f.overlay_url ? `<img src="${f.overlay_url}" class="frame-thumb overlay position-absolute top-0 start-0" style="display:${overlayDisplay}; pointer-events:none;">` : '';
+    const tagBadges = (f.tags || '').split(',').map(t => t.trim()).filter(Boolean).map(t =>
+      `<span class="badge bg-info me-1">${t}</span>`
+    ).join('');
+    col.innerHTML = `
+      <div class="card h-100 frame-card" data-segment-id="${f.segment_id}" data-frame-idx="${f.frame_idx}" style="cursor:zoom-in;">
+        <div class="position-relative text-center p-1">
+          <img src="${f.preview_url}" class="frame-thumb ${statusClass}" data-idx="${f.frame_idx}" alt="预览">
+          ${overlayHtml}
+        </div>
+        <div class="card-body p-2">
+          <div class="small text-muted">${f.case} / ${f.video_name}</div>
+          <div class="small text-muted">帧 ${f.frame_idx} | ${f.frame_time_sec.toFixed(1)}s</div>
+          <div class="mb-1" style="min-height:1.2em;">${tagBadges}</div>
+          <div class="d-flex flex-wrap gap-1 mt-1">
+            <button class="btn btn-sm btn-outline-success btn-quick-label" data-segment-id="${f.segment_id}" data-frame-idx="${f.frame_idx}" data-label="valid">有效</button>
+            <button class="btn btn-sm btn-outline-danger btn-quick-label" data-segment-id="${f.segment_id}" data-frame-idx="${f.frame_idx}" data-label="invalid">无效</button>
+            <button class="btn btn-sm btn-outline-info btn-open-label" data-segment-id="${f.segment_id}" data-frame-idx="${f.frame_idx}">标签</button>
+          </div>
+          <div class="d-flex flex-wrap gap-1 mt-1">
+            <button class="btn btn-sm btn-outline-primary btn-quick-tag" data-segment-id="${f.segment_id}" data-frame-idx="${f.frame_idx}" data-tag="细小血管">细小血管</button>
+            <button class="btn btn-sm btn-outline-primary btn-quick-tag" data-segment-id="${f.segment_id}" data-frame-idx="${f.frame_idx}" data-tag="羊水浑浊">羊水浑浊</button>
+            <button class="btn btn-sm btn-outline-primary btn-quick-tag" data-segment-id="${f.segment_id}" data-frame-idx="${f.frame_idx}" data-tag="激光光斑">激光光斑</button>
+            <button class="btn btn-sm btn-outline-primary btn-quick-tag" data-segment-id="${f.segment_id}" data-frame-idx="${f.frame_idx}" data-tag="胎儿遮挡">胎儿遮挡</button>
+          </div>
+          <div class="small mt-1">CNN 前景 ${f.cnn_area_ratio != null ? (f.cnn_area_ratio*100).toFixed(1) : '-'}%</div>
+        </div>
+      </div>`;
+    container.appendChild(col);
+  });
+}
+
+function renderPagination() {
+  const limit = getLimit();
+  const totalPages = Math.max(1, Math.ceil(totalFrames / limit));
+  currentPage = Math.min(currentPage, totalPages - 1);
+  document.getElementById('page-info').textContent = `第 ${currentPage + 1} / ${totalPages} 页（共 ${totalFrames} 帧）`;
+  document.getElementById('page-prev').disabled = currentPage <= 0;
+  document.getElementById('page-next').disabled = currentPage >= totalPages - 1;
+}
+
+function openZoom(segmentId, frameIdx) {
+  const f = frames.find(x => x.segment_id === segmentId && x.frame_idx === frameIdx);
+  if (!f) return;
+  document.getElementById('zoom-title').textContent = `${f.case} / ${f.video_name} | 帧 ${f.frame_idx} | ${f.frame_time_sec.toFixed(1)}s`;
+  document.getElementById('zoom-image').src = `/api/frame_full/${segmentId}/${frameIdx}?t=${Date.now()}`;
+  const overlay = document.getElementById('zoom-overlay');
+  overlay.src = f.overlay_url || '';
+  const showOverlay = document.getElementById('overlay-toggle').checked;
+  document.getElementById('zoom-overlay-toggle').checked = showOverlay;
+  overlay.style.display = (showOverlay && f.overlay_url) ? 'block' : 'none';
+  const modal = new bootstrap.Modal(document.getElementById('zoomModal'));
+  modal.show();
+}
+
+async function quickFrameLabel(segmentId, frameIdx, label, btn) {
+  const f = frames.find(x => x.segment_id === segmentId && x.frame_idx === frameIdx);
+  const tags = f?.tags || '';
+  const originalText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '保存中...';
+  }
+  try {
+    const res = await fetch(`/api/frames/${segmentId}/${frameIdx}/label`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({label, tags, session_id: sessionId})
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    await loadFrames();
+  } catch (e) {
+    console.error('quickFrameLabel failed', e);
+    alert('保存失败：' + e.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+}
+
+async function quickFrameLabelWithTag(segmentId, frameIdx, tag, btn) {
+  const f = frames.find(x => x.segment_id === segmentId && x.frame_idx === frameIdx);
+  const currentTags = (f?.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+  if (!currentTags.includes(tag)) {
+    currentTags.push(tag);
+  }
+  const tags = currentTags.join(',');
+  const originalText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '保存中...';
+  }
+  try {
+    const res = await fetch(`/api/frames/${segmentId}/${frameIdx}/label`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({label: 'valid', tags, session_id: sessionId})
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    await loadFrames();
+  } catch (e) {
+    console.error('quickFrameLabelWithTag failed', e);
+    alert('保存失败：' + e.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+}
+
+function openFrameModal(segmentId, frameIdx) {
+  const f = frames.find(x => x.segment_id === segmentId && x.frame_idx === frameIdx);
+  if (!f) return;
+  document.getElementById('modal-segment-id').value = segmentId;
+  document.getElementById('modal-frame-idx').value = frameIdx;
+  document.getElementById('modal-frame-status').value = f.status || 'valid';
+  document.getElementById('modal-frame-notes').value = f.notes || '';
+
+  resetToggleButtons('frame-reason-buttons', 'modal-frame-reason');
+  resetToggleButtons('frame-tag-buttons', 'modal-frame-tags');
+
+  if (f.invalid_reason) {
+    document.getElementById('modal-frame-reason').value = f.invalid_reason;
+    syncToggleButtons('frame-reason-buttons', 'modal-frame-reason');
+  }
+  if (f.tags) {
+    document.getElementById('modal-frame-tags').value = f.tags;
+    syncToggleButtons('frame-tag-buttons', 'modal-frame-tags');
+  }
+  refreshTagButtons();
+  const modal = new bootstrap.Modal(document.getElementById('frameLabelModal'));
+  modal.show();
+}
+
+makeToggleButtons('frame-reason-buttons', INVALID_REASONS, 'modal-frame-reason');
+makeToggleButtons('frame-tag-buttons', SUGGESTED_TAGS, 'modal-frame-tags');
+
+document.getElementById('frame-grid').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (btn) {
+    e.stopPropagation();
+    const segmentId = btn.dataset.segmentId;
+    const frameIdx = parseInt(btn.dataset.frameIdx, 10);
+    if (btn.classList.contains('btn-quick-label')) {
+      quickFrameLabel(segmentId, frameIdx, btn.dataset.label, btn);
+    } else if (btn.classList.contains('btn-quick-tag')) {
+      quickFrameLabelWithTag(segmentId, frameIdx, btn.dataset.tag, btn);
+    } else if (btn.classList.contains('btn-open-label')) {
+      openFrameModal(segmentId, frameIdx);
+    }
+    return;
+  }
+  const card = e.target.closest('.frame-card');
+  if (card) {
+    openZoom(card.dataset.segmentId, parseInt(card.dataset.frameIdx, 10));
+  }
+});
+
+document.getElementById('modal-frame-tags').addEventListener('input', () => syncToggleButtons('frame-tag-buttons', 'modal-frame-tags'));
+document.getElementById('modal-frame-reason').addEventListener('input', () => syncToggleButtons('frame-reason-buttons', 'modal-frame-reason'));
+
+document.getElementById('modal-frame-save').addEventListener('click', async () => {
+  const segmentId = document.getElementById('modal-segment-id').value;
+  const frameIdx = parseInt(document.getElementById('modal-frame-idx').value, 10);
+  const label = document.getElementById('modal-frame-status').value;
+  const reason = document.getElementById('modal-frame-reason').value;
+  const tags = document.getElementById('modal-frame-tags').value;
+  const notes = document.getElementById('modal-frame-notes').value;
+  const saveBtn = document.getElementById('modal-frame-save');
+  saveBtn.disabled = true;
+  saveBtn.textContent = '保存中...';
+  try {
+    const res = await fetch(`/api/frames/${segmentId}/${frameIdx}/label`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({label, invalid_reason: reason, tags, notes, session_id: sessionId})
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    bootstrap.Modal.getInstance(document.getElementById('frameLabelModal')).hide();
+    await loadFrames();
+  } catch (e) {
+    console.error('modal save failed', e);
+    alert('保存失败：' + e.message);
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = '保存';
+  }
+});
+
+function updateInvalidateButton() {
+  const caseVal = document.getElementById('filter-case').value;
+  const videoVal = document.getElementById('filter-video').value;
+  const btn = document.getElementById('btn-invalidate-video');
+  btn.disabled = !(caseVal && videoVal);
+}
+
+document.getElementById('filter-case').addEventListener('change', () => {
+  populateVideoSelect();
+  updateInvalidateButton();
+  currentPage = 0;
+  loadFrames();
+});
+document.getElementById('filter-video').addEventListener('change', () => { updateInvalidateButton(); currentPage = 0; loadFrames(); });
+document.getElementById('filter-status').addEventListener('change', () => { currentPage = 0; loadFrames(); });
+document.getElementById('sort-by').addEventListener('change', () => { currentPage = 0; loadFrames(); });
+document.getElementById('page-size').addEventListener('change', () => { currentPage = 0; loadFrames(); });
+document.getElementById('btn-refresh').addEventListener('click', loadFrames);
+
+document.getElementById('btn-invalidate-video').addEventListener('click', async () => {
+  const caseVal = document.getElementById('filter-case').value;
+  const videoVal = document.getElementById('filter-video').value;
+  if (!caseVal || !videoVal) return;
+  const reason = prompt(`请输入病例 ${caseVal} / ${videoVal} 的无效原因（默认 no_vessel）：`, 'no_vessel');
+  if (reason === null) return;
+  if (!confirm(`确定要将整个视频 ${caseVal} / ${videoVal} 标记为无效吗？这将同时标记该视频下所有段和帧。`)) return;
+  const btn = document.getElementById('btn-invalidate-video');
+  btn.disabled = true;
+  btn.textContent = '处理中...';
+  try {
+    const res = await fetch(`/api/videos/${caseVal}/${encodeURIComponent(videoVal)}/invalidate`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({invalid_reason: reason, session_id: sessionId})
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    alert(`已标记无效：${data.invalidated_segments} 段，${data.invalidated_frames} 帧`);
+    await loadFrames();
+  } catch (e) {
+    alert('标记失败：' + e.message);
+  } finally {
+    btn.textContent = '标记当前视频无效';
+    updateInvalidateButton();
+  }
+});
+
+document.getElementById('overlay-toggle').addEventListener('change', renderFrames);
+document.getElementById('zoom-overlay-toggle').addEventListener('change', () => {
+  const show = document.getElementById('zoom-overlay-toggle').checked;
+  const overlay = document.getElementById('zoom-overlay');
+  overlay.style.display = (show && overlay.src) ? 'block' : 'none';
+});
+document.getElementById('page-prev').addEventListener('click', () => { if (currentPage > 0) { currentPage--; loadFrames(); } });
+document.getElementById('page-next').addEventListener('click', () => { currentPage++; loadFrames(); });
+
+loadVideos();
+loadFrames();
+loadCustomTags();
+</script>
+{% endblock %}

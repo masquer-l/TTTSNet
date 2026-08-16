@@ -65,7 +65,14 @@ class TTTSNetViT(nn.Module):
         self.num_features = num_features
 
         # SAM ViT-B image encoder
-        sam = sam_model_registry["vit_b"](checkpoint=sam_checkpoint)
+        # 允许 sam_checkpoint 为 None 或文件不存在：仅初始化结构，后续由完整 checkpoint 覆盖权重
+        if sam_checkpoint is None:
+            sam = sam_model_registry["vit_b"](checkpoint=None)
+        elif Path(sam_checkpoint).exists():
+            sam = sam_model_registry["vit_b"](checkpoint=sam_checkpoint)
+        else:
+            print(f"Warning: sam_checkpoint not found: {sam_checkpoint}, initializing from scratch.")
+            sam = sam_model_registry["vit_b"](checkpoint=None)
         self.vit_encoder = sam.image_encoder
 
         if freeze_vit:

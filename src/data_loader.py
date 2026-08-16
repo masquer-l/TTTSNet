@@ -6,8 +6,28 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
-from typing import Tuple
+from typing import Tuple, Optional
 from utils.custom_augmentations import AddDustParticles, AddLaserPointer, AddOpticalFiber, AddStructuralDefects
+from dataset_video_manifest import VideoFrameDataset
+
+
+def get_manifest_dataset(
+    manifest_path: str,
+    mode: str = "train",
+    img_size: int = 448,
+    binary: bool = True,
+    label_source: Optional[str] = None,
+    crop_source_size: Optional[Tuple[int, int]] = (1080, 1920),
+) -> VideoFrameDataset:
+    """Load a dataset from a frame_manifest.csv for video-on-the-fly training."""
+    return VideoFrameDataset(
+        manifest_path=manifest_path,
+        mode=mode,
+        img_size=img_size,
+        binary=binary,
+        label_source=label_source,
+        crop_source_size=crop_source_size,
+    )
 
 
 class FetoscopicDataset(Dataset):
