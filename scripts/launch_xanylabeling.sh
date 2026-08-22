@@ -21,7 +21,18 @@ fi
 
 cd "${XANYLABELING_DIR}"
 
-conda activate x-anylabeling 2>/dev/null || true
+# Initialize conda for non-interactive shells and activate the X-AnyLabeling env.
+# Disable nounset during activation because some conda hooks reference
+# potentially unbound variables (e.g. MKL_INTERFACE_LAYER).
+CONDA_BASE="${HOME}/miniconda3"
+if [ -f "${CONDA_BASE}/etc/profile.d/conda.sh" ]; then
+    source "${CONDA_BASE}/etc/profile.d/conda.sh"
+else
+    eval "$("${CONDA_BASE}/bin/conda" shell.bash hook)"
+fi
+set +u
+conda activate x-anylabeling
+set -u
 
 export PYTHONPATH="${XANYLABELING_DIR}"
 
